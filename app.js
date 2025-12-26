@@ -46,15 +46,34 @@ async function loadData() {
       .replace(/[^a-z\s]/g, "")
       .trim();
 
-  const countryLookup = new Map(
-    countries.map((country) => [normalizeName(country.name), country.iso2])
-  );
+  const aliasMap = new Map([
+    ["united states of america", "US"],
+    ["cote divoire", "CI"],
+    ["bolivia plurinational state of", "BO"],
+  ]);
+
+  const countryLookup = new Map();
+  countries.forEach((country) => {
+    countryLookup.set(normalizeName(country.name), country.iso2);
+    if (Array.isArray(country.aliases)) {
+      country.aliases.forEach((alias) => {
+        countryLookup.set(normalizeName(alias), country.iso2);
+      });
+    }
+  });
+
+  const unmappedNames = new Set();
 
   countryFeatures = geojson.features
     .filter((feature) => feature.properties?.name !== "Antarctica")
     .map((feature) => {
       const name = feature.properties?.name || "";
-      const iso2 = countryLookup.get(normalizeName(name)) || "";
+      const normalizedName = normalizeName(name);
+      const iso2 =
+        aliasMap.get(normalizedName) || countryLookup.get(normalizedName) || "";
+      if (!iso2) {
+        unmappedNames.add(name);
+      }
       return {
         ...feature,
         properties: {
@@ -63,6 +82,13 @@ async function loadData() {
         },
       };
     });
+
+  if (unmappedNames.size) {
+    console.warn(
+      "Unmapped country names:",
+      Array.from(unmappedNames).sort()
+    );
+  }
 
   renderMap();
   renderDropdown(countries);
