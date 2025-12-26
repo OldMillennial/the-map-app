@@ -25,7 +25,7 @@ let countryFeatures = [];
 let selection = [];
 let paletteIndex = 0;
 
-const projection = d3.geoMercator();
+const projection = d3.geoNaturalEarth1();
 const path = d3.geoPath(projection);
 
 async function loadData() {
@@ -38,7 +38,31 @@ async function loadData() {
   const topology = await topoResponse.json();
 
   const geojson = feature(topology, topology.objects.countries);
-  countryFeatures = geojson.features;
+  const normalizeName = (value) =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[^a-z\s]/g, "")
+      .trim();
+
+  const countryLookup = new Map(
+    countries.map((country) => [normalizeName(country.name), country.iso2])
+  );
+
+  countryFeatures = geojson.features
+    .filter((feature) => feature.properties?.name !== "Antarctica")
+    .map((feature) => {
+      const name = feature.properties?.name || "";
+      const iso2 = countryLookup.get(normalizeName(name)) || "";
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          iso2,
+        },
+      };
+    });
 
   renderMap();
   renderDropdown(countries);
@@ -170,13 +194,13 @@ function renderTable() {
 }
 
 function updateMapColors() {
-  const colorByName = new Map(
-    selection.map((entry) => [entry.name.toLowerCase(), entry.color])
+  const colorByIso = new Map(
+    selection.map((entry) => [entry.iso2.toLowerCase(), entry.color])
   );
 
   mapSvg.selectAll("path.country").attr("fill", (d) => {
-    const name = (d.properties.name || "").toLowerCase();
-    return colorByName.get(name) || "#e2e8f0";
+    const iso2 = (d.properties.iso2 || "").toLowerCase();
+    return colorByIso.get(iso2) || "#e2e8f0";
   });
 }
 
