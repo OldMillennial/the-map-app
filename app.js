@@ -224,7 +224,7 @@ function updateMapColors() {
     selection.map((entry) => [entry.iso2.toLowerCase(), entry.color])
   );
 
-  mapSvg.selectAll("path.country").attr("fill", (d) => {
+  mapSvg.selectAll("path.country").style("fill", (d) => {
     const iso2 = (d.properties.iso2 || "").toLowerCase();
     return colorByIso.get(iso2) || "#e2e8f0";
   });
