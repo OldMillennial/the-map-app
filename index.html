@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Map Customizer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <section class="map-panel">
+        <header class="map-header">
+          <div class="input-wrapper">
+            <label for="country-input">Add a country</label>
+            <input
+              id="country-input"
+              type="text"
+              placeholder="Type a country or ISO code"
+              autocomplete="off"
+            />
+            <div class="dropdown" id="country-dropdown" aria-live="polite"></div>
+          </div>
+          <button id="download-btn" class="primary">Download JPG</button>
+        </header>
+        <div class="map-container">
+          <svg id="map" role="img" aria-label="World map"></svg>
+        </div>
+        <p class="map-hint">
+          Tip: use the color swatch in the table to customize a country highlight.
+        </p>
+      </section>
+      <aside class="table-panel">
+        <h2>Selected countries</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>Country</th>
+              <th>Color</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="selection-table"></tbody>
+        </table>
+      </aside>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
