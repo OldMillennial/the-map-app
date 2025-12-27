@@ -404,26 +404,6 @@ const hideTooltip = () => {
   tooltip.style.display = "none";
 };
 
-  const iso3 = feature.properties.iso3;
-  const multi = event.shiftKey;
-  if (!multi) {
-    state.selection.clear();
-  }
-  if (state.selection.has(iso3)) {
-    state.selection.delete(iso3);
-  } else {
-    state.selection.add(iso3);
-  }
-  updateMap();
-  renderSelectionList();
-  scheduleSave();
-
-  if (event.pointerType === "touch") {
-    showTooltip(feature.properties.name || "Unknown", event);
-    setTimeout(hideTooltip, 1600);
-  }
-};
-
 const updateSelectionSummary = () => {
   if (state.selection.size === 0) {
     ui.selectionSummary.textContent = "Selected: none";
@@ -691,10 +671,6 @@ const applyChoropleth = (rows) => {
     }
     data.set(iso3.toUpperCase(), value);
   });
-  renderGroups();
-  scheduleSave();
-};
-
   state.choropleth.data = data;
   state.choropleth.warnings = warnings;
   state.choropleth.active = true;
@@ -706,6 +682,7 @@ const applyChoropleth = (rows) => {
   updateLegendBins();
   updateMap();
   renderLegendEditor();
+  renderGroups();
   scheduleSave();
 };
 
