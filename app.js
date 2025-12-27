@@ -11,6 +11,7 @@ const DATA_SOURCES = {
 const mapSvg = d3.select("#map");
 const tooltip = document.querySelector("#tooltip");
 const textEditor = document.querySelector("#text-editor");
+const mapWrap = document.querySelector(".map-wrap");
 
 const ui = {
   countrySearch: document.querySelector("#country-search"),
@@ -259,9 +260,22 @@ const setupProjection = (width, height) => {
   path = d3.geoPath(projection);
 };
 
+const getMapDimensions = () => {
+  if (mapWrap) {
+    const { width, height } = mapWrap.getBoundingClientRect();
+    return {
+      width: Math.max(Math.round(width), 1),
+      height: Math.max(Math.round(height), 1),
+    };
+  }
+  return {
+    width: Math.max(Math.round(mapSvg.node().clientWidth), 1),
+    height: Math.max(Math.round(mapSvg.node().clientHeight), 1),
+  };
+};
+
 const renderMap = () => {
-  const width = mapSvg.node().clientWidth;
-  const height = mapSvg.node().clientHeight;
+  const { width, height } = getMapDimensions();
 
   setupProjection(width, height);
   mapSvg.attr("viewBox", `0 0 ${width} ${height}`);
@@ -1374,6 +1388,7 @@ const attachEvents = () => {
   ui.modeSelect.addEventListener("click", () => setMode("select"));
   ui.modeText.addEventListener("click", () => setMode("text"));
   ui.modePin.addEventListener("click", () => setMode("pin"));
+  window.addEventListener("resize", () => renderMap());
 };
 
 const bootstrap = async () => {
