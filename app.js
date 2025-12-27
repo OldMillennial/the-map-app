@@ -1420,18 +1420,53 @@ const attachEvents = () => {
   ui.modeSelect.addEventListener("click", () => setMode("select"));
   ui.modeText.addEventListener("click", () => setMode("text"));
   ui.modePin.addEventListener("click", () => setMode("pin"));
-  window.addEventListener("resize", renderMapIfSizeChanged);
-  if (mapWrap && "ResizeObserver" in window) {
-    const resizeObserver = new ResizeObserver((entries) => {
-      entries.forEach((entry) => {
-        const { width, height } = entry.target.getBoundingClientRect();
-        if (width > 0 && height > 0) {
-          renderMapIfSizeChanged();
-        }
+  let resizePending = false;
+  const scheduleStableMapRender = () => {
+    if (resizePending) {
+      return;
+    }
+    resizePending = true;
+    if (!mapWrap) {
+      requestAnimationFrame(() => {
+        resizePending = false;
+        renderMapIfSizeChanged();
       });
+      return;
+    }
+    let lastWidth = 0;
+    let lastHeight = 0;
+    let stableFrames = 0;
+    const checkStableSize = () => {
+      const { width, height } = mapWrap.getBoundingClientRect();
+      const nextWidth = Math.round(width);
+      const nextHeight = Math.round(height);
+      if (nextWidth === 0 || nextHeight === 0) {
+        stableFrames = 0;
+      } else if (nextWidth === lastWidth && nextHeight === lastHeight) {
+        stableFrames += 1;
+      } else {
+        lastWidth = nextWidth;
+        lastHeight = nextHeight;
+        stableFrames = 0;
+      }
+      if (stableFrames >= 1) {
+        resizePending = false;
+        renderMapIfSizeChanged();
+        return;
+      }
+      requestAnimationFrame(checkStableSize);
+    };
+    requestAnimationFrame(checkStableSize);
+  };
+
+  window.addEventListener("resize", scheduleStableMapRender);
+  if (mapWrap && "ResizeObserver" in window) {
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleStableMapRender();
     });
     resizeObserver.observe(mapWrap);
   }
+  scheduleStableMapRender();
 };
 
 const bootstrap = async () => {
@@ -1492,7 +1527,6 @@ const bootstrap = async () => {
     renderSnapshots();
     renderSelectionList();
     renderLegendEditor();
-    renderMap();
     attachEvents();
     setMode("select");
     mapSvg.style("background", state.styles.background);
