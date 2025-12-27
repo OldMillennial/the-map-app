@@ -5,11 +5,7 @@ import Papa from "https://esm.sh/papaparse@5.4.1";
 
 const DATA_SOURCES = {
   topojson: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
-  iso: [
-    "https://cdn.jsdelivr.net/npm/iso-3166-1@2.1.1/iso-3166-1.json",
-    "https://cdn.jsdelivr.net/npm/iso-3166-1@2.1.1/iso-3166.json",
-    "https://unpkg.com/iso-3166-1@2.1.1/iso-3166-1.json",
-  ],
+  iso: "./data/iso-3166-1.json",
 };
 
 const mapSvg = d3.select("#map");
