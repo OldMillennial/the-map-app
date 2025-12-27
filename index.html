@@ -1,49 +1,212 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Map Customizer</title>
+    <title>World Map Editor</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app">
-      <section class="map-panel">
-        <header class="map-header">
-          <div class="input-wrapper">
-            <label for="country-input">Add a country</label>
-            <input
-              id="country-input"
-              type="text"
-              placeholder="Type a country or ISO code"
-              autocomplete="off"
-            />
-            <div class="dropdown" id="country-dropdown" aria-live="polite"></div>
-          </div>
-          <button id="download-btn" class="primary">Download JPG</button>
-        </header>
-        <div class="map-container">
-          <svg id="map" role="img" aria-label="World map"></svg>
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark">WM</div>
+        <div>
+          <h1>World Map Editor</h1>
+          <p>Highlight countries, build choropleths, and export presentation-ready maps.</p>
         </div>
-        <p class="map-hint">
-          Tip: use the color swatch in the table to customize a country highlight.
-        </p>
-      </section>
-      <aside class="table-panel">
-        <h2>Selected countries</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Flag</th>
-              <th>Country</th>
-              <th>Color</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="selection-table"></tbody>
-        </table>
+      </div>
+      <div class="header-actions">
+        <span class="status-pill" id="autosave-status">Autosaved</span>
+        <button class="ghost" id="import-json">Import JSON</button>
+        <button class="ghost" id="export-json">Export JSON</button>
+        <button class="ghost" id="export-svg">Export SVG</button>
+        <button class="primary" id="export-png">Export PNG</button>
+        <button class="ghost" id="export-jpg">Export JPG</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <aside class="sidebar">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Country search</h2>
+            <button class="text-button" id="clear-selection">Clear</button>
+          </div>
+          <div class="field">
+            <label for="country-search">Search country or ISO3</label>
+            <input id="country-search" type="text" placeholder="Type a country..." autocomplete="off" />
+            <div id="country-results" class="dropdown"></div>
+          </div>
+          <div class="inline-actions">
+            <button class="primary" id="select-from-search">Select</button>
+            <button class="ghost" id="hide-from-search">Hide</button>
+          </div>
+          <div class="selection-summary" id="selection-summary">Selected: none</div>
+          <small>Shift-click on the map to multi-select.</small>
+        </section>
+
+        <section class="panel">
+          <h2>Styling</h2>
+          <div class="field">
+            <label for="selected-fill">Selected fill</label>
+            <div class="field-row">
+              <input id="selected-fill" type="color" value="#2563eb" />
+              <button class="ghost" id="apply-selected-fill">Apply to selection</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="nonselected-fill">Non-selected fill</label>
+            <div class="field-row">
+              <input id="nonselected-fill" type="color" value="#e2e8f0" />
+              <input id="nonselected-opacity" type="range" min="0" max="100" value="70" />
+            </div>
+            <small>Opacity</small>
+          </div>
+          <div class="field">
+            <label for="nodata-fill">No-data fill</label>
+            <input id="nodata-fill" type="color" value="#cbd5f5" />
+          </div>
+          <div class="inline-actions">
+            <button class="ghost" id="reset-colors">Reset colors</button>
+            <button class="ghost" id="reset-all">Reset all</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Groups</h2>
+            <button class="ghost" id="add-group">+ New</button>
+          </div>
+          <div id="group-list" class="group-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Hide / isolate</h2>
+          <div class="inline-actions">
+            <button class="ghost" id="hide-selected">Hide selected</button>
+            <button class="ghost" id="isolate-selected">Isolate selected</button>
+          </div>
+          <div class="inline-actions">
+            <button class="ghost" id="hide-nodata">Hide no-data</button>
+            <button class="ghost" id="unhide-all">Unhide all</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Data (choropleth)</h2>
+          <div class="field">
+            <label for="csv-input">Upload CSV</label>
+            <input id="csv-input" type="file" accept=".csv" />
+            <small>Expected columns: iso3, value</small>
+          </div>
+          <div class="field">
+            <label for="scale-mode">Scale</label>
+            <select id="scale-mode">
+              <option value="quantile">Quantiles (recommended)</option>
+              <option value="linear">Linear</option>
+              <option value="log">Log</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bucket-count">Buckets</label>
+            <input id="bucket-count" type="number" min="3" max="9" value="5" />
+          </div>
+          <div class="field">
+            <label for="min-value">Min (optional)</label>
+            <input id="min-value" type="number" placeholder="Auto" />
+          </div>
+          <div class="field">
+            <label for="max-value">Max (optional)</label>
+            <input id="max-value" type="number" placeholder="Auto" />
+          </div>
+          <div class="inline-actions">
+            <button class="primary" id="apply-choropleth">Apply</button>
+            <button class="ghost" id="clear-choropleth">Clear</button>
+          </div>
+          <div id="data-warnings" class="warnings"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Annotations</h2>
+          <div class="inline-actions">
+            <button class="ghost" id="add-text">+ Text</button>
+            <button class="ghost" id="add-pin">+ Pin</button>
+          </div>
+          <div class="field">
+            <label for="annotation-color">Annotation color</label>
+            <input id="annotation-color" type="color" value="#1f2937" />
+          </div>
+          <div class="field">
+            <label for="annotation-size">Font size</label>
+            <input id="annotation-size" type="number" min="10" max="48" value="14" />
+          </div>
+          <div class="field">
+            <label for="annotation-bg">Label background</label>
+            <input id="annotation-bg" type="color" value="#ffffff" />
+          </div>
+          <div id="annotation-list" class="annotation-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Snapshots</h2>
+          <div class="inline-actions">
+            <button class="primary" id="save-snapshot">Save snapshot</button>
+          </div>
+          <div id="snapshot-list" class="snapshot-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Export</h2>
+          <div class="field">
+            <label for="background-color">Background</label>
+            <input id="background-color" type="color" value="#ffffff" />
+          </div>
+          <div class="inline-actions">
+            <button class="ghost" id="export-svg-2">Export SVG</button>
+            <button class="ghost" id="export-png-2">Export PNG</button>
+            <button class="ghost" id="export-jpg-2">Export JPG</button>
+          </div>
+          <div class="paid-panel">
+            <div>
+              <strong>Transparent PNG</strong>
+              <p>One-time unlock for professional overlays.</p>
+            </div>
+            <button class="primary" id="unlock-transparent">Unlock</button>
+            <button class="ghost" id="export-transparent">Export transparent PNG</button>
+          </div>
+        </section>
       </aside>
-    </div>
+
+      <section class="canvas">
+        <div class="canvas-toolbar">
+          <div class="toolbar-group">
+            <button class="ghost" id="mode-select">Select</button>
+            <button class="ghost" id="mode-text">Text</button>
+            <button class="ghost" id="mode-pin">Pin</button>
+          </div>
+          <div class="toolbar-group">
+            <label for="projection">Projection</label>
+            <select id="projection">
+              <option value="mercator">Mercator</option>
+              <option value="robinson">Robinson</option>
+              <option value="winkel">Winkel Tripel</option>
+              <option value="equalEarth">Equal Earth</option>
+            </select>
+          </div>
+          <div class="toolbar-group">
+            <button class="ghost" id="zoom-in">Zoom +</button>
+            <button class="ghost" id="zoom-out">Zoom -</button>
+            <button class="ghost" id="fit-world">Fit world</button>
+          </div>
+        </div>
+        <div class="map-wrap">
+          <svg id="map" role="img" aria-label="World map"></svg>
+          <div id="tooltip" class="tooltip"></div>
+          <input id="text-editor" class="text-editor" type="text" />
+        </div>
+      </section>
+    </main>
+
     <script type="module" src="app.js"></script>
   </body>
 </html>
