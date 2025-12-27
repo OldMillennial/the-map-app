@@ -120,6 +120,7 @@ let countryLayer;
 let pinLayer;
 let textLayer;
 let legendLayer;
+let lastMapSize = { width: 0, height: 0 };
 const zoomBehavior = d3.zoom().scaleExtent([1, 8]).on("zoom", (event) => {
   mapSvg.select(".map-root").attr("transform", event.transform);
   state.zoomTransform = event.transform;
@@ -276,9 +277,13 @@ const getMapDimensions = () => {
 
 const renderMap = () => {
   const { width, height } = getMapDimensions();
+  if (width === 0 || height === 0) {
+    return;
+  }
+  lastMapSize = { width, height };
 
   setupProjection(width, height);
-  mapSvg.attr("viewBox", `0 0 ${width} ${height}`);
+  mapSvg.attr("viewBox", `0 0 ${width} ${height}`).attr("width", width).attr("height", height);
 
   mapSvg.selectAll("g").remove();
   const root = mapSvg.append("g").attr("class", "map-root");
@@ -305,6 +310,29 @@ const renderMap = () => {
   updateMap();
   updateAnnotations();
   renderLegend();
+};
+
+const renderMapIfSizeChanged = () => {
+  if (mapWrap) {
+    const rect = mapWrap.getBoundingClientRect();
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+    if (width === 0 || height === 0) {
+      return;
+    }
+    const nextWidth = Math.max(width, 1);
+    const nextHeight = Math.max(height, 1);
+    if (nextWidth === lastMapSize.width && nextHeight === lastMapSize.height) {
+      return;
+    }
+    renderMap();
+    return;
+  }
+  const { width, height } = getMapDimensions();
+  if (width === lastMapSize.width && height === lastMapSize.height) {
+    return;
+  }
+  renderMap();
 };
 
 const updateMap = () => {
@@ -1388,7 +1416,18 @@ const attachEvents = () => {
   ui.modeSelect.addEventListener("click", () => setMode("select"));
   ui.modeText.addEventListener("click", () => setMode("text"));
   ui.modePin.addEventListener("click", () => setMode("pin"));
-  window.addEventListener("resize", () => renderMap());
+  window.addEventListener("resize", renderMapIfSizeChanged);
+  if (mapWrap && "ResizeObserver" in window) {
+    const resizeObserver = new ResizeObserver((entries) => {
+      entries.forEach((entry) => {
+        const { width, height } = entry.target.getBoundingClientRect();
+        if (width > 0 && height > 0) {
+          renderMapIfSizeChanged();
+        }
+      });
+    });
+    resizeObserver.observe(mapWrap);
+  }
 };
 
 const bootstrap = async () => {
