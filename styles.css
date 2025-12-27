@@ -83,6 +83,7 @@ select {
   display: grid;
   grid-template-columns: 340px 1fr;
   min-height: calc(100vh - 86px);
+  align-items: start;
 }
 
 .sidebar {
@@ -249,7 +250,7 @@ button.text-button {
 
 .map-wrap {
   position: relative;
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 640px;
   background: var(--panel);
   border: 1px solid var(--border);
