@@ -357,6 +357,51 @@ const handleCountryClick = (event, feature) => {
     addPinFromFeature(feature);
     return;
   }
+  if (state.mode === "pin") {
+    addPinFromFeature(feature);
+    return;
+  }
+
+  const iso3 = feature.properties.iso3;
+  const multi = event.shiftKey;
+  if (!multi) {
+    state.selection.clear();
+  }
+  if (state.selection.has(iso3)) {
+    state.selection.delete(iso3);
+  } else {
+    state.selection.add(iso3);
+  }
+  updateMap();
+  renderSelectionList();
+  scheduleSave();
+
+  if (event.pointerType === "touch") {
+    showTooltip(feature.properties.name || "Unknown", event);
+    setTimeout(hideTooltip, 1600);
+  }
+};
+
+const showTooltip = (text, event) => {
+  tooltip.textContent = text;
+  tooltip.style.display = "block";
+  const { clientX, clientY } = event;
+  const rect = tooltip.getBoundingClientRect();
+  let x = clientX + 12;
+  let y = clientY + 12;
+  if (x + rect.width > window.innerWidth) {
+    x = clientX - rect.width - 12;
+  }
+  if (y + rect.height > window.innerHeight) {
+    y = clientY - rect.height - 12;
+  }
+  tooltip.style.left = `${x}px`;
+  tooltip.style.top = `${y}px`;
+};
+
+const hideTooltip = () => {
+  tooltip.style.display = "none";
+};
 
   const iso3 = feature.properties.iso3;
   const multi = event.shiftKey;
@@ -666,6 +711,9 @@ const applyChoropleth = (rows) => {
     }
     data.set(iso3.toUpperCase(), value);
   });
+  renderGroups();
+  scheduleSave();
+};
 
   state.choropleth.data = data;
   state.choropleth.warnings = warnings;
