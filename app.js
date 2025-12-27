@@ -1383,11 +1383,13 @@ const attachEvents = () => {
 
 const bootstrap = async () => {
   try {
-    const [topology, nameData, isoData] = await Promise.all([
+    const [topology, isoData] = await Promise.all([
       d3.json(DATA_SOURCES.topojson),
-      d3.tsv(DATA_SOURCES.names),
       fetchJsonWithFallback(DATA_SOURCES.iso),
     ]);
+    const nameData = DATA_SOURCES.names
+      ? await d3.tsv(DATA_SOURCES.names).catch(() => null)
+      : null;
 
     const isoByName = new Map();
     const isoByNumeric = new Map();
@@ -1401,7 +1403,7 @@ const bootstrap = async () => {
     }
 
     const nameById = new Map();
-    nameData.forEach((row) => {
+    nameData?.forEach((row) => {
       nameById.set(row.id, row.name);
     });
 
