@@ -121,7 +121,11 @@ let pinLayer;
 let textLayer;
 let legendLayer;
 let lastMapSize = { width: 0, height: 0 };
-const zoomBehavior = d3.zoom().scaleExtent([1, 8]).on("zoom", (event) => {
+const zoomBehavior = d3
+  .zoom()
+  .scaleExtent([1, 8])
+  .filter((event) => event.type !== "wheel")
+  .on("zoom", (event) => {
   mapSvg.select(".map-root").attr("transform", event.transform);
   state.zoomTransform = event.transform;
 });
@@ -1480,6 +1484,7 @@ const bootstrap = async () => {
     if (stored) {
       hydrateState(JSON.parse(stored));
     }
+    state.zoomTransform = d3.zoomIdentity;
     state.paidUnlock = localStorage.getItem(UNLOCK_KEY) === "true";
 
     updateControls();
