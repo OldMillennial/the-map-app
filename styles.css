@@ -229,6 +229,7 @@ button.text-button {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 
 .canvas-toolbar {
@@ -250,7 +251,8 @@ button.text-button {
 
 .map-wrap {
   position: relative;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  width: 100%;
   min-height: 640px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -260,6 +262,7 @@ button.text-button {
 }
 
 #map {
+  display: block;
   width: 100%;
   height: 100%;
 }
