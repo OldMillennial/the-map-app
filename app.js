@@ -5,7 +5,6 @@ import Papa from "https://esm.sh/papaparse@5.4.1";
 
 const DATA_SOURCES = {
   topojson: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
-  names: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.tsv",
   iso: [
     "https://cdn.jsdelivr.net/npm/iso-3166-1@2.1.1/iso-3166-1.json",
     "https://cdn.jsdelivr.net/npm/iso-3166-1@2.1.1/iso-3166.json",
@@ -1387,10 +1386,6 @@ const bootstrap = async () => {
       d3.json(DATA_SOURCES.topojson),
       fetchJsonWithFallback(DATA_SOURCES.iso),
     ]);
-    const nameData = DATA_SOURCES.names
-      ? await d3.tsv(DATA_SOURCES.names).catch(() => null)
-      : null;
-
     const isoByName = new Map();
     const isoByNumeric = new Map();
     if (isoData?.countries) {
@@ -1402,16 +1397,11 @@ const bootstrap = async () => {
       });
     }
 
-    const nameById = new Map();
-    nameData?.forEach((row) => {
-      nameById.set(row.id, row.name);
-    });
-
     const geojson = feature(topology, topology.objects.countries);
     state.features = geojson.features
       .filter((feature) => feature.id !== "010" && feature.properties?.name !== "Antarctica")
       .map((feature) => {
-        const name = nameById.get(feature.id) || feature.properties?.name || "Unknown";
+        const name = feature.properties?.name || "Unknown";
         const normalized = normalize(name);
         const iso3 =
           aliasMap.get(normalized) ||
