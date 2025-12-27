@@ -5,8 +5,11 @@ import Papa from "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/+esm";
 
 const DATA_SOURCES = {
   topojson: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
-  names: "https://cdn.jsdelivr.net/npm/world-atlas@2/country-names.tsv",
-  iso: "https://cdn.jsdelivr.net/npm/iso-3166-1@2.1.1/iso-3166.json",
+  names: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.tsv",
+  iso: [
+    "https://cdn.jsdelivr.net/npm/iso-3166-1@2.1.1/iso-3166-1.json",
+    "https://unpkg.com/iso-3166-1@2.1.1/iso-3166-1.json",
+  ],
 };
 
 const mapSvg = d3.select("#map");
@@ -215,6 +218,22 @@ const normalize = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const fetchJsonWithFallback = async (urls) => {
+  const list = Array.isArray(urls) ? urls : [urls];
+  for (const url of list) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        continue;
+      }
+      return await response.json();
+    } catch (error) {
+      console.warn("Failed to load", url, error);
+    }
+  }
+  return null;
+};
+
 const setMode = (mode) => {
   state.mode = mode;
   [ui.modeSelect, ui.modeText, ui.modePin].forEach((button) =>
@@ -338,6 +357,51 @@ const handleCountryClick = (event, feature) => {
     addPinFromFeature(feature);
     return;
   }
+  if (state.mode === "pin") {
+    addPinFromFeature(feature);
+    return;
+  }
+
+  const iso3 = feature.properties.iso3;
+  const multi = event.shiftKey;
+  if (!multi) {
+    state.selection.clear();
+  }
+  if (state.selection.has(iso3)) {
+    state.selection.delete(iso3);
+  } else {
+    state.selection.add(iso3);
+  }
+  updateMap();
+  renderSelectionList();
+  scheduleSave();
+
+  if (event.pointerType === "touch") {
+    showTooltip(feature.properties.name || "Unknown", event);
+    setTimeout(hideTooltip, 1600);
+  }
+};
+
+const showTooltip = (text, event) => {
+  tooltip.textContent = text;
+  tooltip.style.display = "block";
+  const { clientX, clientY } = event;
+  const rect = tooltip.getBoundingClientRect();
+  let x = clientX + 12;
+  let y = clientY + 12;
+  if (x + rect.width > window.innerWidth) {
+    x = clientX - rect.width - 12;
+  }
+  if (y + rect.height > window.innerHeight) {
+    y = clientY - rect.height - 12;
+  }
+  tooltip.style.left = `${x}px`;
+  tooltip.style.top = `${y}px`;
+};
+
+const hideTooltip = () => {
+  tooltip.style.display = "none";
+};
 
   const iso3 = feature.properties.iso3;
   const multi = event.shiftKey;
@@ -647,6 +711,9 @@ const applyChoropleth = (rows) => {
     }
     data.set(iso3.toUpperCase(), value);
   });
+  renderGroups();
+  scheduleSave();
+};
 
   state.choropleth.data = data;
   state.choropleth.warnings = warnings;
@@ -1362,13 +1429,19 @@ const bootstrap = async () => {
     const [topology, nameData, isoData] = await Promise.all([
       d3.json(DATA_SOURCES.topojson),
       d3.tsv(DATA_SOURCES.names),
-      d3.json(DATA_SOURCES.iso),
+      fetchJsonWithFallback(DATA_SOURCES.iso),
     ]);
 
     const isoByName = new Map();
-    isoData.countries.forEach((country) => {
-      isoByName.set(normalize(country.country), country.alpha3);
-    });
+    const isoByNumeric = new Map();
+    if (isoData?.countries) {
+      isoData.countries.forEach((country) => {
+        isoByName.set(normalize(country.country), country.alpha3);
+        if (country.numeric) {
+          isoByNumeric.set(String(country.numeric).padStart(3, "0"), country.alpha3);
+        }
+      });
+    }
 
     const nameById = new Map();
     nameData.forEach((row) => {
@@ -1381,7 +1454,10 @@ const bootstrap = async () => {
       .map((feature) => {
         const name = nameById.get(feature.id) || feature.properties?.name || "Unknown";
         const normalized = normalize(name);
-        const iso3 = aliasMap.get(normalized) || isoByName.get(normalized) || "";
+        const iso3 =
+          aliasMap.get(normalized) ||
+          isoByName.get(normalized) ||
+          isoByNumeric.get(String(feature.id));
         return {
           ...feature,
           properties: {
