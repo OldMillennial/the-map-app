@@ -424,27 +424,6 @@ const hideTooltip = () => {
   }
 };
 
-const showTooltip = (text, event) => {
-  tooltip.textContent = text;
-  tooltip.style.display = "block";
-  const { clientX, clientY } = event;
-  const rect = tooltip.getBoundingClientRect();
-  let x = clientX + 12;
-  let y = clientY + 12;
-  if (x + rect.width > window.innerWidth) {
-    x = clientX - rect.width - 12;
-  }
-  if (y + rect.height > window.innerHeight) {
-    y = clientY - rect.height - 12;
-  }
-  tooltip.style.left = `${x}px`;
-  tooltip.style.top = `${y}px`;
-};
-
-const hideTooltip = () => {
-  tooltip.style.display = "none";
-};
-
 const updateSelectionSummary = () => {
   if (state.selection.size === 0) {
     ui.selectionSummary.textContent = "Selected: none";
