@@ -43,6 +43,13 @@
           </div>
           <div class="selection-summary" id="selection-summary">Selected: none</div>
           <small>Shift-click on the map to multi-select.</small>
+		  <div class="selected-countries">
+			<div class="selected-countries-header">
+				<strong>Selected countries</strong>
+				<button class="text-button" id="clear-country-overrides" type="button">Clear overrides</button>
+			  </div>
+			  <div id="selected-country-list" class="selected-country-list"></div>
+			</div>
         </section>
 
         <section class="panel">
@@ -62,15 +69,66 @@
             </div>
             <small>Opacity</small>
           </div>
+			<div class="field">
+			  <label>Sea</label>
+			  <label style="display:flex; gap:8px; align-items:center;">
+				<input id="sea-enabled" type="checkbox" />
+				Show sea color
+			  </label>
+
+			  <div class="field-row">
+				<input id="sea-fill" type="color" value="#93c5fd" />
+				<input id="sea-opacity" type="range" min="0" max="100" value="100" />
+			  </div>
+			</div>
           <div class="field">
             <label for="nodata-fill">No-data fill</label>
             <input id="nodata-fill" type="color" value="#cbd5f5" />
           </div>
+		  <div class="field">
+		  <label for="country-stroke">Country outline</label>
+		  <input id="country-stroke" type="color" value="#94a3b8" />
+		</div>
           <div class="inline-actions">
             <button class="ghost" id="reset-colors">Reset colors</button>
             <button class="ghost" id="reset-all">Reset all</button>
           </div>
         </section>
+		
+		<section class="control-group panel">
+		  <h3>Disputed areas</h3>
+
+		  <label>
+			<input type="checkbox" id="disputes-enabled" />
+			Show disputed areas
+		  </label>
+<div class="field">
+  <label class="row">
+    <span>Disputed areas</span>
+    <span class="inline">
+      <input id="disputed-match-selected" type="checkbox" checked />
+      <span>Match selected fill</span>
+    </span>
+  </label>
+
+  <input id="disputed-fill" type="color" value="#2563eb" disabled />
+</div>
+		  <label>
+			<input type="checkbox" id="disputes-labels" />
+			Show labels
+		  </label>
+		  <div class="row-actions">
+  <button id="disputes-select-all" type="button" class="btn btn-small">Select all</button>
+  <button id="disputes-select-none" type="button" class="btn btn-small">Select none</button>
+</div>
+
+<div id="disputes-list" class="disputes-list"></div>
+
+		  <p class="hint">
+			Major disputes include Crimea, Kashmir, Taiwan.
+		  </p>
+		</section>
+
 
         <section class="panel">
           <div class="panel-header">
@@ -191,6 +249,10 @@
               <option value="robinson">Robinson</option>
               <option value="winkel">Winkel Tripel</option>
               <option value="equalEarth">Equal Earth</option>
+			  <option value="equirectangular">Equirectanglar</option>
+			  <option value="geoNaturalEarth1">Natural Earth</option>
+			  <option value="geoOrthographic">Orthographic</option>
+			  <option value="naturalEarthSketchy">Natural Earth (Sketchy)</option>
             </select>
           </div>
           <div class="toolbar-group">

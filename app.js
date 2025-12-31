@@ -6,6 +6,7 @@ import Papa from "https://esm.sh/papaparse@5.4.1";
 const DATA_SOURCES = {
   topojson: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
   iso: "./data/iso-3166-1.json",
+  disputed: "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_50m_admin_0_breakaway_disputed_areas.geojson",
 };
 
 const mapSvg = d3.select("#map");
@@ -20,10 +21,13 @@ const ui = {
   hideFromSearch: document.querySelector("#hide-from-search"),
   selectionSummary: document.querySelector("#selection-summary"),
   clearSelection: document.querySelector("#clear-selection"),
+  selectedCountryList: document.querySelector("#selected-country-list"),
+  clearCountryOverrides: document.querySelector("#clear-country-overrides"),
   selectedFill: document.querySelector("#selected-fill"),
   applySelectedFill: document.querySelector("#apply-selected-fill"),
   nonSelectedFill: document.querySelector("#nonselected-fill"),
   nonSelectedOpacity: document.querySelector("#nonselected-opacity"),
+  countryStroke: document.querySelector("#country-stroke"),
   noDataFill: document.querySelector("#nodata-fill"),
   resetColors: document.querySelector("#reset-colors"),
   resetAll: document.querySelector("#reset-all"),
@@ -67,6 +71,18 @@ const ui = {
   modeSelect: document.querySelector("#mode-select"),
   modeText: document.querySelector("#mode-text"),
   modePin: document.querySelector("#mode-pin"),
+seaEnabled: document.querySelector("#sea-enabled"),
+seaFill: document.querySelector("#sea-fill"),
+seaOpacity: document.querySelector("#sea-opacity"),
+disputesEnabled: document.querySelector("#disputes-enabled"),
+disputesStyle: document.querySelector("#disputes-style"),
+disputesLabels: document.querySelector("#disputes-labels"),
+disputesList: document.querySelector("#disputes-list"),
+disputedMatchSelected: document.querySelector("#disputed-match-selected"),
+disputedFill: document.querySelector("#disputed-fill"),
+disputesSelectAll: document.querySelector("#disputes-select-all"),
+disputesSelectNone: document.querySelector("#disputes-select-none"),
+
 };
 
 const defaultState = () => ({
@@ -79,7 +95,21 @@ const defaultState = () => ({
     nonSelectedFill: "#e2e8f0",
     nonSelectedOpacity: 0.7,
     noDataFill: "#cbd5f5",
+	countryStroke: "#94a3b8",
     background: "#ffffff",
+	seaEnabled: false,
+	seaFill: "#93c5fd",   // only used when seaEnabled = true
+	seaOpacity: 1,
+	disputedMatchSelected: true,
+	disputedFill: "#2563eb",
+  },
+  annotations: [],
+  legend: {
+    title: "Legend",
+    bins: [],
+    position: { x: 40, y: 40 },
+    visible: true,
+    orientation: "vertical",
   },
   countryStyles: new Map(),
   choropleth: {
@@ -95,18 +125,19 @@ const defaultState = () => ({
   groups: [],
   pins: [],
   texts: [],
-  legend: {
-    title: "Legend",
-    bins: [],
-    position: { x: 40, y: 40 },
-    visible: true,
-    orientation: "vertical",
-  },
   projectionType: "mercator",
   zoomTransform: d3.zoomIdentity,
   mode: "select",
   snapshots: [],
   paidUnlock: false,
+  disputes: {
+    enabled: false,
+    style: "tint",
+    labels: false,
+    features: [],
+	groupList: [],
+	enabledGroups: new Map(),
+  },
 });
 
 const state = defaultState();
@@ -120,6 +151,9 @@ let countryLayer;
 let pinLayer;
 let textLayer;
 let legendLayer;
+let sphereLayer;
+let sketchLayer;
+let disputeLayer;
 let lastMapSize = { width: 0, height: 0 };
 const zoomBehavior = d3
   .zoom()
@@ -130,22 +164,81 @@ const zoomBehavior = d3
   state.zoomTransform = event.transform;
 });
 
-const presetGroups = [
-  { name: "European Union (EU)", iso3List: ["AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE"] },
-  { name: "OECD", iso3List: ["AUS", "AUT", "BEL", "CAN", "CHL", "COL", "CRI", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "ISL", "IRL", "ISR", "ITA", "JPN", "KOR", "LVA", "LTU", "LUX", "MEX", "NLD", "NZL", "NOR", "POL", "PRT", "SVK", "SVN", "ESP", "SWE", "CHE", "TUR", "GBR", "USA"] },
-  { name: "English (Official)", iso3List: ["AUS", "CAN", "GBR", "IRL", "NZL", "USA", "ZAF", "IND", "PAK", "NGA", "GHA", "KEN", "UGA", "TZA", "ZMB", "ZWE", "PHL", "SGP"] },
-  { name: "BRICS", iso3List: ["BRA", "RUS", "IND", "CHN", "ZAF"] },
-  { name: "G7", iso3List: ["CAN", "FRA", "DEU", "ITA", "JPN", "GBR", "USA"] },
-  { name: "G20", iso3List: ["ARG", "AUS", "BRA", "CAN", "CHN", "FRA", "DEU", "IND", "IDN", "ITA", "JPN", "KOR", "MEX", "RUS", "SAU", "ZAF", "TUR", "GBR", "USA", "EUU"] },
-  { name: "ASEAN", iso3List: ["BRN", "KHM", "IDN", "LAO", "MYS", "MMR", "PHL", "SGP", "THA", "VNM"] },
-  { name: "GCC", iso3List: ["BHR", "KWT", "OMN", "QAT", "SAU", "ARE"] },
-  { name: "African Union", iso3List: ["DZA", "AGO", "BEN", "BWA", "BFA", "BDI", "CPV", "CMR", "CAF", "TCD", "COM", "COG", "COD", "CIV", "DJI", "EGY", "GNQ", "ERI", "SWZ", "ETH", "GAB", "GMB", "GHA", "GIN", "GNB", "KEN", "LSO", "LBR", "LBY", "MDG", "MWI", "MLI", "MRT", "MUS", "MAR", "MOZ", "NAM", "NER", "NGA", "RWA", "STP", "SEN", "SYC", "SLE", "SOM", "ZAF", "SSD", "SDN", "TZA", "TGO", "TUN", "UGA", "ZMB", "ZWE"] },
-  { name: "OPEC", iso3List: ["DZA", "AGO", "COD", "GNQ", "GAB", "IRN", "IRQ", "KWT", "LBY", "NGA", "SAU", "ARE", "VEN"] },
-  { name: "SAARC", iso3List: ["AFG", "BGD", "BTN", "IND", "MDV", "NPL", "PAK", "LKA"] },
-  { name: "Mercosur", iso3List: ["ARG", "BOL", "BRA", "PRY", "URY", "VEN"] },
-  { name: "USMCA", iso3List: ["CAN", "MEX", "USA"] },
-  { name: "Global South", iso3List: ["DZA", "AGO", "ARG", "BGD", "BOL", "BRA", "CHL", "CHN", "COL", "COD", "EGY", "ETH", "GHA", "IND", "IDN", "IRN", "IRQ", "KEN", "MEX", "MAR", "NGA", "PAK", "PER", "PHL", "RUS", "SAU", "ZAF", "THA", "TUR", "VNM"] },
-];
+let isRotatingGlobe = false;
+let globeDragMoved = false;
+let globeDragStart = null;
+let globeRotateStart = null;
+
+const globeDragBehavior = d3
+  .drag()
+  .on("start", (event) => {
+    if (state.projectionType !== "geoOrthographic") return;
+
+    isRotatingGlobe = true;
+    globeDragMoved = false;
+    globeDragStart = [event.x, event.y];
+    globeRotateStart = projection.rotate(); // [lambda, phi, gamma]
+  })
+  .on("drag", (event) => {
+    if (!isRotatingGlobe || state.projectionType !== "geoOrthographic") return;
+
+    const dx = event.x - globeDragStart[0];
+    const dy = event.y - globeDragStart[1];
+    if (Math.abs(dx) + Math.abs(dy) > 2) globeDragMoved = true;
+
+    // Sensitivity based on current scale (bigger globe = smaller degrees per pixel)
+    const s = projection.scale();
+    const k = 180 / (Math.PI * s);
+
+    const lambda = globeRotateStart[0] + dx * k * 2.2;
+    const phi = globeRotateStart[1] - dy * k * 2.2;
+
+    projection.rotate([lambda, Math.max(-89, Math.min(89, phi)), globeRotateStart[2] || 0]);
+
+countryLayer.selectAll("path.country").attr("d", path);
+if (disputeLayer) {
+  disputeLayer.selectAll("path.dispute-area").attr("d", path);
+  disputeLayer.selectAll("text.dispute-label")
+    .attr("transform", (d) => `translate(${path.centroid(d)})`);
+}
+if (sphereLayer) {
+  sphereLayer.selectAll("path.globe-outline").attr("d", path);
+  sphereLayer.selectAll("path.sea-sphere").attr("d", path);
+}
+updateAnnotations();
+renderLegend();
+
+  })
+  .on("end", () => {
+    if (state.projectionType !== "geoOrthographic") return;
+
+    isRotatingGlobe = false;
+    globeDragStart = null;
+    globeRotateStart = null;
+
+    // Persist rotation by saving projectionType only is not enough.
+    // If you want to persist rotation, we can store it in state too.
+    scheduleSave();
+  });
+  
+let presetGroups = [];
+
+const loadPresetGroups = async () => {
+  try {
+    const res = await fetch("./data/preset-groups.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to load preset-groups.json (${res.status})`);
+    const data = await res.json();
+
+    // basic sanity
+    if (!Array.isArray(data)) throw new Error("preset-groups.json must be an array");
+    presetGroups = data
+      .filter((g) => g && typeof g.name === "string" && Array.isArray(g.iso3List))
+      .map((g) => ({ name: g.name, iso3List: g.iso3List }));
+  } catch (err) {
+    console.warn("Preset groups not loaded, continuing without them:", err);
+    presetGroups = [];
+  }
+};
 
 const aliasMap = new Map([
   ["bolivia (plurinational state of)", "BOL"],
@@ -236,6 +329,144 @@ const fetchJsonWithFallback = async (urls) => {
   return null;
 };
 
+const hashToUnit = (str) => {
+  // Simple deterministic hash -> [0, 1)
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // unsigned -> [0,1)
+  return (h >>> 0) / 4294967296;
+};
+
+const sketchOffset = (key, amplitude) => {
+  const a = hashToUnit(key + ":x") * 2 - 1;
+  const b = hashToUnit(key + ":y") * 2 - 1;
+  return [a * amplitude, b * amplitude];
+};
+
+const renderSketch = () => {
+  if (!sketchLayer) return;
+
+  const sketchOn = state.projectionType === "naturalEarthSketchy";
+  sketchLayer.style("display", sketchOn ? null : "none");
+  if (!sketchOn) return;
+
+  const MIN_AREA = 0.10;      // screen px^2
+  const PASSES = 3;
+  const AMP = 0.8;
+
+  const width = lastMapSize?.width || mapSvg.node()?.clientWidth || 1000;
+  const seamJump = width * 0.5; // jump threshold for antimeridian/seam splitting
+
+  const project = (lonlat) => {
+    const xy = projection(lonlat);
+    if (!xy) return null;
+    const [x, y] = xy;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return [x, y];
+  };
+
+  // Split a ring into multiple screen-space segments when it jumps across the seam.
+  // This prevents long “across-the-world” segments.
+  const projectRingSplit = (ring) => {
+    const segments = [];
+    let seg = [];
+
+    let prev = null;
+    for (const p of ring) {
+      const xy = project(p);
+
+      if (!xy) {
+        if (seg.length) segments.push(seg);
+        seg = [];
+        prev = null;
+        continue;
+      }
+
+      if (prev) {
+        const dx = Math.abs(xy[0] - prev[0]);
+        if (dx > seamJump) {
+          // seam crossing: end current segment and start a new one
+          if (seg.length) segments.push(seg);
+          seg = [xy];
+          prev = xy;
+          continue;
+        }
+      }
+
+      seg.push(xy);
+      prev = xy;
+    }
+
+    if (seg.length) segments.push(seg);
+
+    // Remove tiny segments
+    return segments.filter((s) => s.length >= 3);
+  };
+
+  const segmentsToDraw = [];
+
+  const pushSegmentPasses = (iso3, pts, closed) => {
+    const area = Math.abs(d3.polygonArea(pts));
+    if (area < MIN_AREA) return;
+
+    for (let i = 0; i < PASSES; i++) {
+      segmentsToDraw.push({ iso3, i, pts, closed });
+    }
+  };
+
+  for (const f of state.features) {
+    const iso3 = f.properties.iso3;
+    const geom = f.geometry;
+    if (!geom) continue;
+
+    const handleRing = (ring) => {
+      const segs = projectRingSplit(ring);
+      if (!segs.length) return;
+
+      // If the ring did not split, we can use curveBasisClosed safely.
+      // If it split, use open curveBasis so it won’t “close” across the seam.
+      const didSplit = segs.length > 1;
+
+      if (!didSplit) {
+        pushSegmentPasses(iso3, segs[0], true);
+      } else {
+        for (const pts of segs) pushSegmentPasses(iso3, pts, false);
+      }
+    };
+
+    if (geom.type === "Polygon") {
+      for (const ring of geom.coordinates) handleRing(ring);
+    } else if (geom.type === "MultiPolygon") {
+      for (const poly of geom.coordinates) {
+        for (const ring of poly) handleRing(ring);
+      }
+    }
+  }
+
+  // Two line generators: closed and open
+  const lineClosed = d3.line().curve(d3.curveBasisClosed);
+  const lineOpen = d3.line().curve(d3.curveBasis);
+
+  sketchLayer
+    .selectAll("path.sketch-stroke")
+    .data(segmentsToDraw, (d) => `${d.iso3}:${d.i}:${d.pts.length}:${d.closed ? "c" : "o"}`)
+    .join("path")
+    .attr("class", "sketch-stroke")
+    .attr("d", (d) => (d.closed ? lineClosed(d.pts) : lineOpen(d.pts)))
+    .attr("fill", "none")
+    .attr("stroke", "currentColor")
+    .attr("stroke-width", 1)
+    .attr("stroke-linecap", "round")
+    .attr("opacity", 0.15)
+    .attr("transform", (d) => {
+      const [dx, dy] = sketchOffset(`${d.iso3}:${d.i}`, AMP);
+      return `translate(${dx},${dy})`;
+    });
+};
+
 const setMode = (mode) => {
   state.mode = mode;
   [ui.modeSelect, ui.modeText, ui.modePin].forEach((button) =>
@@ -255,46 +486,131 @@ const setupProjection = (width, height) => {
       projection = d3GeoProjection.geoWinkel3();
       break;
     case "equalEarth":
-      projection = d3GeoProjection.geoEqualEarth();
+      projection = d3.geoEqualEarth();
       break;
+    case "equirectangular":
+      projection = d3.geoEquirectangular();
+      break;
+    case "geoNaturalEarth1":
+      projection = d3.geoNaturalEarth1();
+      break;
+    case "geoOrthographic":
+      projection = d3.geoOrthographic().clipAngle(90);
+      break;	  
     default:
       projection = d3.geoMercator();
       break;
   }
-  projection.fitSize([width, height], { type: "Sphere" });
-  path = d3.geoPath(projection);
+// Fit the projection to real land geometry.
+// Mercator + Sphere produces an overly small scale because poles explode.
+const featuresForFit =
+  state.projectionType === "geoOrthographic"
+    ? state.features
+    : state.features.filter((f) => f.properties?.iso3 !== "ATA");
+
+const fitTarget =
+  state.projectionType === "geoOrthographic"
+    ? { type: "Sphere" }
+    : (featuresForFit && featuresForFit.length
+        ? { type: "FeatureCollection", features: featuresForFit }
+        : { type: "Sphere" });
+
+// Use feature-based fitting for all projections (safe and looks right).
+projection.fitSize([width, height], fitTarget);
+
+if (state.projectionType !== "geoOrthographic") {
+  projection.clipExtent([[0, 0], [width, height]]);
+} else {
+  projection.clipExtent(null);
+}
+
+
+path = d3.geoPath(projection);
+
 };
 
 const getMapDimensions = () => {
-  if (mapWrap) {
-    const { width, height } = mapWrap.getBoundingClientRect();
-    return {
-      width: Math.max(Math.round(width), 1),
-      height: Math.max(Math.round(height), 1),
-    };
-  }
-  return {
-    width: Math.max(Math.round(mapSvg.node().clientWidth), 1),
-    height: Math.max(Math.round(mapSvg.node().clientHeight), 1),
-  };
+  const wrapRect = mapWrap.getBoundingClientRect();
+
+  // Read the CSS padding variable used by `#map { inset: var(--map-pad); }`
+  const padStr = getComputedStyle(mapWrap).getPropertyValue("--map-pad").trim();
+  const pad = Number.parseFloat(padStr) || 0;
+
+  const innerWidth = Math.max(1, Math.round(wrapRect.width - pad * 2));
+  const innerHeight = Math.max(1, Math.round(wrapRect.height - pad * 2));
+
+  return { width: innerWidth, height: innerHeight, pad };
 };
 
 const renderMap = () => {
   const { width, height } = getMapDimensions();
-  if (width === 0 || height === 0) {
-    return;
-  }
+  if (!width || !height) return;
+
+  const pad = 24; // match your CSS --map-pad
+
   lastMapSize = { width, height };
 
-  setupProjection(width, height);
-  mapSvg.attr("viewBox", `0 0 ${width} ${height}`).attr("width", width).attr("height", height);
+  setupProjection(width - pad * 2, height - pad * 2);
+
+  // Let CSS control layout size (inset/100%); JS controls viewBox only.
+  mapSvg
+    .attr("viewBox", `0 0 ${width} ${height}`)
+    .attr("preserveAspectRatio", "xMidYMid meet")
+    .attr("width", "100%")
+    .attr("height", "100%");
 
   mapSvg.selectAll("g").remove();
-  const root = mapSvg.append("g").attr("class", "map-root");
+  const root = mapSvg
+    .append("g")
+    .attr("class", "map-root")
+    .attr("transform", `translate(${pad},${pad})`);
+
+  sphereLayer = root.append("g").attr("class", "sphere");
   countryLayer = root.append("g").attr("class", "countries");
+  disputeLayer = root.append("g").attr("class", "disputes");
+  sketchLayer = root.append("g").attr("class", "sketch").attr("pointer-events", "none");
   pinLayer = root.append("g").attr("class", "pins");
   textLayer = root.append("g").attr("class", "texts");
   legendLayer = root.append("g").attr("class", "legend");
+
+  
+sphereLayer.selectAll("*").remove();
+
+if (state.projectionType !== "geoOrthographic") {
+  sphereLayer
+    .append("rect")
+    .attr("class", "sea-rect")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", width - pad * 2)
+    .attr("height", height - pad * 2)
+    .attr("fill", state.styles.seaEnabled ? state.styles.seaFill : "transparent")
+    .attr("fill-opacity", state.styles.seaOpacity ?? 1)
+    .attr("pointer-events", "none");
+}
+
+if (state.projectionType === "geoOrthographic") {
+  sphereLayer
+    .append("path")
+    .datum({ type: "Sphere" })
+    .attr("class", "sea-sphere")
+    .attr("d", path)
+    .attr("fill", state.styles.seaEnabled ? state.styles.seaFill : "transparent")
+    .attr("fill-opacity", state.styles.seaOpacity ?? 1)
+    .attr("pointer-events", "none");
+
+  // Globe outline on top
+  sphereLayer
+    .append("path")
+    .datum({ type: "Sphere" })
+    .attr("class", "globe-outline")
+    .attr("d", path)
+    .attr("fill", "none")
+    .attr("stroke", "currentColor")
+    .attr("stroke-width", 1)
+    .attr("opacity", 0.35)
+    .attr("pointer-events", "none");
+}
 
   countryLayer
     .selectAll("path")
@@ -307,14 +623,23 @@ const renderMap = () => {
     .on("pointermove", handlePointerMove)
     .on("pointerout", handlePointerOut)
     .on("click", handleCountryClick);
+ renderSketch();
 
-  mapSvg.call(zoomBehavior);
-  mapSvg.call(zoomBehavior.transform, state.zoomTransform);
+	mapSvg.on(".drag", null);
 
-  updateMap();
-  updateAnnotations();
-  renderLegend();
-};
+	if (state.projectionType === "geoOrthographic") {
+	  mapSvg.on(".zoom", null);
+	  mapSvg.call(globeDragBehavior);
+	} else {
+	  mapSvg.call(zoomBehavior);
+	  mapSvg.call(zoomBehavior.transform, state.zoomTransform);
+	}
+
+	  updateMap();
+	  updateAnnotations();
+	  renderLegend();
+	  renderSketch();
+	};
 
 const renderMapIfSizeChanged = () => {
   if (mapWrap) {
@@ -340,17 +665,100 @@ const renderMapIfSizeChanged = () => {
 };
 
 const updateMap = () => {
+if (sphereLayer && state.projectionType === "geoOrthographic") {
+  sphereLayer.selectAll("path.globe-outline").attr("d", path);
+}
   countryLayer
     .selectAll("path")
-    .attr("display", (d) => (state.hidden.has(d.properties.iso3) ? "none" : null))
+	.attr("display", (d) => {
+	  const iso3 = d.properties.iso3;
+	  const autoHideAntarctica = iso3 === "ATA" && state.projectionType !== "geoOrthographic";
+	  return (state.hidden.has(iso3) || autoHideAntarctica) ? "none" : null;
+	})
     .attr("fill", (d) => getCountryFill(d.properties.iso3))
     .attr("fill-opacity", (d) => getCountryOpacity(d.properties.iso3))
-    .attr("stroke", "#94a3b8")
+    .attr("stroke", state.styles.countryStroke || "#94a3b8")
     .attr("stroke-width", 0.5);
-
+  updateDisputes(); 
+  renderSketch();
   updateSelectionSummary();
   updateLegendBinsUI();
   renderLegend();
+};
+
+const updateSea = () => {
+  if (!sphereLayer) return;
+
+  const fill = state.styles.seaEnabled ? state.styles.seaFill : "transparent";
+  const opacity = state.styles.seaOpacity ?? 1;
+
+  const isGlobe = state.projectionType === "geoOrthographic";
+
+  // 2D sea rect only matters when not a globe projection
+  if (!isGlobe) {
+    sphereLayer
+      .selectAll("rect.sea-rect")
+      .attr("fill", fill)
+      .attr("fill-opacity", opacity);
+  }
+
+  // Globe sea disk (inside rim)
+  sphereLayer
+    .selectAll("path.sea-sphere")
+    .attr("fill", fill)
+    .attr("fill-opacity", opacity);
+};
+
+const updateDisputes = () => {
+  if (!disputeLayer) return;
+
+if (!state.disputes?.enabled || !state.disputes.features?.length) {
+  disputeLayer.selectAll("*").remove();
+  return;
+}
+
+const style = "tint";
+state.disputes.style = "tint";
+  
+const enabledFeatures =
+  state.disputes.groupList?.length
+    ? state.disputes.groupList
+        .filter((g) => state.disputes.enabledGroups?.get(g.id) !== false)
+        .flatMap((g) => g.features)
+    : state.disputes.features;
+
+if (!enabledFeatures.length) {
+  disputeLayer.selectAll("*").remove();
+  return;
+}
+const disputedFill =
+  state.styles?.disputedMatchSelected
+    ? state.styles.selectedFill
+    : (state.styles?.disputedFill || state.styles.selectedFill);
+
+// Draw polygons (tint only)
+disputeLayer
+  .selectAll("path.dispute-area")
+  .data(enabledFeatures, (d, i) => d?.properties?.name || d?.id || i)
+  .join("path")
+  .attr("class", "dispute-area tint")
+  .attr("d", path)
+  .attr("fill", disputedFill)
+  .attr("fill-opacity", 1)
+  .attr("stroke", "none");
+
+  // Labels
+  disputeLayer.selectAll("text.dispute-label").remove();
+  if (state.disputes.labels) {
+    disputeLayer
+      .selectAll("text.dispute-label")
+      .data(enabledFeatures)
+      .join("text")
+      .attr("class", "dispute-label")
+      .attr("transform", (d) => `translate(${path.centroid(d)})`)
+      .attr("text-anchor", "middle")
+      .text((d) => d?.properties?.name || "Disputed area");
+  }
 };
 
 const getCountryFill = (iso3) => {
@@ -391,31 +799,32 @@ const handlePointerOut = (event) => {
 };
 
 const handleCountryClick = (event, feature) => {
+	if (state.projectionType === "geoOrthographic" && globeDragMoved) {
+	  globeDragMoved = false;
+	  return;
+	}
   if (state.mode === "text") {
     addTextAtEvent(event);
     return;
   }
-  if (state.mode === "pin") {
-    addPinFromFeature(feature);
-    return;
-  }
+
   if (state.mode === "pin") {
     addPinFromFeature(feature);
     return;
   }
 
   const iso3 = feature.properties.iso3;
-  const multi = event.shiftKey;
-  if (!multi) {
-    state.selection.clear();
-  }
+
+  // Multi-select by default: clicking toggles selection state.
   if (state.selection.has(iso3)) {
     state.selection.delete(iso3);
   } else {
     state.selection.add(iso3);
   }
+
   updateMap();
   renderSelectionList();
+  renderSelectedCountries();
   scheduleSave();
 
   if (event.pointerType === "touch") {
@@ -427,16 +836,27 @@ const handleCountryClick = (event, feature) => {
 const showTooltip = (text, event) => {
   tooltip.textContent = text;
   tooltip.style.display = "block";
+
   const { clientX, clientY } = event;
-  const rect = tooltip.getBoundingClientRect();
-  let x = clientX + 12;
-  let y = clientY + 12;
-  if (x + rect.width > window.innerWidth) {
-    x = clientX - rect.width - 12;
-  }
-  if (y + rect.height > window.innerHeight) {
-    y = clientY - rect.height - 12;
-  }
+
+  // Position tooltip relative to the map-wrap (not the viewport)
+  const wrapRect = mapWrap.getBoundingClientRect();
+  const tipRect = tooltip.getBoundingClientRect();
+
+  let x = clientX - wrapRect.left + 12;
+  let y = clientY - wrapRect.top + 12;
+
+  // Clamp inside the map-wrap
+  const maxX = wrapRect.width - tipRect.width - 12;
+  const maxY = wrapRect.height - tipRect.height - 12;
+
+  if (x > maxX) x = clientX - wrapRect.left - tipRect.width - 12;
+  if (y > maxY) y = clientY - wrapRect.top - tipRect.height - 12;
+
+  // Final safety clamp
+  x = Math.max(12, Math.min(x, maxX));
+  y = Math.max(12, Math.min(y, maxY));
+
   tooltip.style.left = `${x}px`;
   tooltip.style.top = `${y}px`;
 };
@@ -455,6 +875,63 @@ const updateSelectionSummary = () => {
     .slice(0, 4);
   const rest = state.selection.size - names.length;
   ui.selectionSummary.textContent = `Selected: ${names.join(", ")}${rest > 0 ? ` +${rest}` : ""}`;
+};
+
+const renderSelectedCountries = () => {
+  if (!ui.selectedCountryList) return;
+
+  ui.selectedCountryList.innerHTML = "";
+
+  if (state.selection.size === 0) {
+    ui.selectedCountryList.innerHTML = `<div class="warnings">No countries selected yet.</div>`;
+    return;
+  }
+
+  const selected = [...state.selection]
+    .map((iso3) => ({
+      iso3,
+      name: state.countries.get(iso3)?.name || iso3,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  selected.forEach(({ iso3, name }) => {
+    const row = document.createElement("div");
+    row.className = "selected-country-row";
+
+    const label = document.createElement("div");
+    label.className = "selected-country-name";
+    label.textContent = name;
+
+    const swatchWrap = document.createElement("div");
+    swatchWrap.className = "country-swatch";
+
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = state.countryStyles.get(iso3) || state.styles.selectedFill;
+    input.title = `Override fill for ${name}`;
+
+    input.addEventListener("input", (event) => {
+      state.countryStyles.set(iso3, event.target.value);
+      updateMap();
+      scheduleSave();
+    });
+
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "ghost";
+    clearBtn.type = "button";
+    clearBtn.textContent = "Reset";
+    clearBtn.title = "Remove override for this country";
+    clearBtn.addEventListener("click", () => {
+      state.countryStyles.delete(iso3);
+      renderSelectedCountries();
+      updateMap();
+      scheduleSave();
+    });
+
+    swatchWrap.append(input, clearBtn);
+    row.append(label, swatchWrap);
+    ui.selectedCountryList.appendChild(row);
+  });
 };
 
 const updateSearchResults = (query = "") => {
@@ -496,6 +973,7 @@ const selectFromSearch = () => {
   state.selection.add(iso3);
   updateMap();
   renderSelectionList();
+  renderSelectedCountries();
   scheduleSave();
 };
 
@@ -517,6 +995,11 @@ const applySelectedFill = () => {
   renderSelectionList();
   scheduleSave();
 };
+ui.countryStroke.addEventListener("input", () => {
+  state.styles.countryStroke = ui.countryStroke.value;
+  updateMap();
+  scheduleSave();
+});
 
 const renderSelectionList = () => {
   ui.annotationList.innerHTML = "";
@@ -571,17 +1054,106 @@ const resetColors = () => {
 };
 
 const resetAll = () => {
+  // Preserve whatever projection the user is currently looking at
+  const currentProjectionType = state.projectionType;
+
+  // Also preserve loaded geography data so the map never “disappears”
+  const existingFeatures = state.features;
+  const existingCountries = state.countries;
+
+  // Preserve disputes data loaded at bootstrap (so the UI doesn’t break)
+  const existingDisputeFeatures = state.disputes?.features || [];
+  const existingDisputeGroupList = state.disputes?.groupList || [];
+  const existingEnabledGroups = state.disputes?.enabledGroups || new Map();
+
+  // Build a fresh default state
   const fresh = defaultState();
+
+  // Apply defaults into current state object
   Object.assign(state, fresh);
-  state.groups = [...presetGroups.map((group) => ({ ...group, id: crypto.randomUUID() }))];
+
+  // Restore preserved items
+  state.projectionType = currentProjectionType;
+  state.features = existingFeatures;
+  state.countries = existingCountries;
+
+  state.disputes.features = existingDisputeFeatures;
+  state.disputes.groupList = existingDisputeGroupList;
+  state.disputes.enabledGroups = existingEnabledGroups;
+
+  // Reset groups back to presets (as before)
+  state.groups = presetGroups.map((group) => ({ ...group, id: crypto.randomUUID() }));
+
+  // Clear selection/hidden explicitly (defaultState already does this, but keep it unambiguous)
+  state.selection.clear();
+  state.hidden.clear();
+  state.countryStyles.clear();
+
+  // If choropleth was active, defaults already cleared it, but make sure the UI clears too
+  state.choropleth.active = false;
+  state.choropleth.data.clear();
+  if (ui.dataWarnings) ui.dataWarnings.innerHTML = "";
+
+  // Re-render everything, keeping the current projection
   updateControls();
   renderGroups();
   renderSnapshots();
   renderSelectionList();
+  renderSelectedCountries();
   renderLegendEditor();
-  renderMap();
+
+  renderMap();     // uses state.projectionType (preserved)
+  updateMap();     // applies fills/strokes/etc.
+
   mapSvg.style("background", state.styles.background);
   scheduleSave();
+};
+
+const getDisputeId = (f, index) => {
+  // Natural Earth often has a name-ish property, but be defensive.
+  const p = f?.properties || {};
+  const label =
+    p.name || p.NAME || p.geonunit || p.GEONUNIT || p.note || p.NOTE || `Dispute ${index + 1}`;
+
+  // ID should be stable and unique-ish
+  const raw = `${label}|${p.scalerank ?? ""}|${p.featurecla ?? ""}|${index}`;
+  return normalize(raw).replace(/\s+/g, "-");
+};
+
+const getDisputeLabel = (f, index) => {
+  const p = f?.properties || {};
+  return (
+    p.name || p.NAME || p.geonunit || p.GEONUNIT || p.note || p.NOTE || `Dispute ${index + 1}`
+  );
+};
+
+const renderDisputesListUI = () => {
+  if (!ui.disputesList) return;
+
+  const disabled = !state.disputes.enabled;
+  ui.disputesList.innerHTML = "";
+
+  state.disputes.groupList.forEach((group) => {
+    const row = document.createElement("label");
+    row.className = "dispute-row";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = state.disputes.enabledGroups.get(group.id) !== false;
+    cb.disabled = disabled;
+
+    cb.addEventListener("change", () => {
+      state.disputes.enabledGroups.set(group.id, cb.checked);
+      updateMap();
+      scheduleSave();
+    });
+
+    const text = document.createElement("span");
+    text.textContent = `${group.label} (${group.features.length})`;
+
+    row.append(cb, text);
+    ui.disputesList.appendChild(row);
+  });
 };
 
 const renderGroups = () => {
@@ -600,11 +1172,11 @@ const renderGroups = () => {
     color.className = "ghost";
     color.textContent = "Color";
     color.addEventListener("click", () => colorGroup(group));
-    const hide = document.createElement("button");
-    hide.className = "ghost";
-    hide.textContent = "Hide";
-    hide.addEventListener("click", () => hideGroup(group));
-    actions.append(select, color, hide);
+	const hide = document.createElement("button");
+	hide.className = "ghost";
+	hide.textContent = isGroupIsolated(group) ? "Unhide" : "Hide";
+	hide.addEventListener("click", () => toggleHideGroup(group));
+	actions.append(select, color, hide);
     card.append(actions);
     ui.groupList.appendChild(card);
   });
@@ -629,7 +1201,18 @@ const colorGroup = (group) => {
 };
 
 const hideGroup = (group) => {
-  group.iso3List.forEach((iso3) => state.hidden.add(iso3));
+  // Hide everything except the group's countries (that exist in the map).
+  state.hidden.clear();
+
+  const groupSet = new Set(group.iso3List.filter((iso3) => state.countries.has(iso3)));
+
+  state.features.forEach((feature) => {
+    const iso3 = feature.properties.iso3;
+    if (!groupSet.has(iso3)) {
+      state.hidden.add(iso3);
+    }
+  });
+
   updateMap();
   scheduleSave();
 };
@@ -644,6 +1227,44 @@ const addGroup = () => {
     iso3List: [...state.selection],
   });
   renderGroups();
+  scheduleSave();
+};
+
+const isGroupIsolated = (group) => {
+  const groupSet = new Set(group.iso3List.filter((iso3) => state.countries.has(iso3)));
+
+  // If at least one visible map feature that is NOT in the group is hidden,
+  // and all non-group features are hidden, treat as isolated.
+  let sawNonGroup = false;
+  for (const feature of state.features) {
+    const iso3 = feature.properties.iso3;
+    if (!groupSet.has(iso3)) {
+      sawNonGroup = true;
+      if (!state.hidden.has(iso3)) return false; // a non-group country is still visible
+    }
+  }
+  return sawNonGroup; // isolated only if there were non-group features to hide
+};
+
+const toggleHideGroup = (group) => {
+  if (isGroupIsolated(group)) {
+    // Unhide everything
+    state.hidden.clear();
+  } else {
+    // Isolate group: hide everything except group countries
+    state.hidden.clear();
+
+    const groupSet = new Set(group.iso3List.filter((iso3) => state.countries.has(iso3)));
+    for (const feature of state.features) {
+      const iso3 = feature.properties.iso3;
+      if (!groupSet.has(iso3)) {
+        state.hidden.add(iso3);
+      }
+    }
+  }
+
+  updateMap();
+  renderGroups(); // refresh button labels (Hide/Unhide)
   scheduleSave();
 };
 
@@ -1151,6 +1772,12 @@ const serializeState = () => {
       max: state.choropleth.max,
       warnings: state.choropleth.warnings,
     },
+	disputes: {
+  enabled: state.disputes.enabled,
+  style: state.disputes.style,
+  labels: state.disputes.labels,
+  enabledGroups: Array.from(state.disputes.enabledGroups.entries()),
+},
     groups: state.groups,
     pins: state.pins,
     texts: state.texts,
@@ -1177,6 +1804,17 @@ const hydrateState = (data) => {
   state.texts = data.texts || [];
   state.legend = data.legend || state.legend;
   state.projectionType = data.projectionType || state.projectionType;
+if (data.disputes) {
+  state.disputes.enabled = !!data.disputes.enabled;
+  state.disputes.style = data.disputes.style || state.disputes.style;
+  state.disputes.labels = !!data.disputes.labels;
+
+  // Per-feature toggles (if you still use them)
+  state.disputes.enabledById = new Map(data.disputes.enabledById || []);
+
+  // Group toggles (your current desired UX)
+  state.disputes.enabledGroups = new Map(data.disputes.enabledGroups || []);
+}
   if (data.zoomTransform) {
     state.zoomTransform = d3.zoomIdentity
       .translate(data.zoomTransform.x, data.zoomTransform.y)
@@ -1198,15 +1836,30 @@ const scheduleSave = () => {
 
 const updateControls = () => {
   ui.selectedFill.value = state.styles.selectedFill;
+	ui.disputedMatchSelected.checked = !!state.styles.disputedMatchSelected;
+
+	// If matching selected, show selected colour in the picker but keep it disabled
+	ui.disputedFill.value = state.styles.disputedMatchSelected
+	  ? state.styles.selectedFill
+	  : (state.styles.disputedFill || state.styles.selectedFill);
+
+	ui.disputedFill.disabled = !!state.styles.disputedMatchSelected;
+
   ui.nonSelectedFill.value = state.styles.nonSelectedFill;
   ui.nonSelectedOpacity.value = state.styles.nonSelectedOpacity * 100;
   ui.noDataFill.value = state.styles.noDataFill;
+  if (ui.countryStroke) {
+    ui.countryStroke.value = state.styles.countryStroke || "#94a3b8";
+  }
   ui.backgroundColor.value = state.styles.background;
   ui.scaleMode.value = state.choropleth.scaleMode;
   ui.bucketCount.value = state.choropleth.buckets;
   ui.minValue.value = state.choropleth.min ?? "";
   ui.maxValue.value = state.choropleth.max ?? "";
   ui.projectionSelect.value = state.projectionType;
+  ui.seaEnabled.checked = !!state.styles.seaEnabled;
+  ui.seaFill.value = state.styles.seaFill || "#93c5fd";
+  ui.seaOpacity.value = Math.round((state.styles.seaOpacity ?? 1) * 100);
 };
 
 const exportSvg = () => {
@@ -1288,6 +1941,7 @@ const importProject = async () => {
     updateControls();
     renderGroups();
     renderSelectionList();
+	renderSelectedCountries();
     renderSnapshots();
     renderLegendEditor();
     renderMap();
@@ -1318,30 +1972,193 @@ const unlockTransparent = () => {
 const attachEvents = () => {
   ui.countrySearch.addEventListener("input", (event) => updateSearchResults(event.target.value));
   ui.countrySearch.addEventListener("focus", () => updateSearchResults(ui.countrySearch.value));
-  ui.countrySearch.addEventListener("blur", () => setTimeout(() => ui.countryResults.classList.remove("open"), 200));
+  ui.countrySearch.addEventListener("blur", () =>
+    setTimeout(() => ui.countryResults.classList.remove("open"), 200)
+  );
+
   ui.selectFromSearch.addEventListener("click", selectFromSearch);
   ui.hideFromSearch.addEventListener("click", hideFromSearch);
+
   ui.clearSelection.addEventListener("click", () => {
     state.selection.clear();
     updateMap();
+    renderSelectedCountries();
+    scheduleSave();
   });
+
   ui.applySelectedFill.addEventListener("click", applySelectedFill);
-  ui.selectedFill.addEventListener("input", applySelectedFill);
+
+  ui.selectedFill.addEventListener("input", (event) => {
+    // keep selected fill state in sync (in case applySelectedFill doesn't)
+    state.styles.selectedFill = event.target.value;
+
+    applySelectedFill();
+
+    // keep disputed picker display in sync when matching
+    if (state.styles.disputedMatchSelected && ui.disputedFill) {
+      ui.disputedFill.value = state.styles.selectedFill;
+    }
+  });
+
   ui.nonSelectedFill.addEventListener("input", (event) => {
     state.styles.nonSelectedFill = event.target.value;
     updateMap();
     scheduleSave();
   });
+
   ui.nonSelectedOpacity.addEventListener("input", (event) => {
     state.styles.nonSelectedOpacity = Number(event.target.value) / 100;
     updateMap();
     scheduleSave();
   });
+
   ui.noDataFill.addEventListener("input", (event) => {
     state.styles.noDataFill = event.target.value;
     updateMap();
     scheduleSave();
   });
+
+  if (ui.clearCountryOverrides) {
+    ui.clearCountryOverrides.addEventListener("click", () => {
+      // Only clear overrides for currently selected countries
+      state.selection.forEach((iso3) => state.countryStyles.delete(iso3));
+      renderSelectedCountries();
+      updateMap();
+      scheduleSave();
+    });
+  }
+
+  const syncSeaControls = () => {
+    const enabled = !!state.styles.seaEnabled;
+    ui.seaFill.disabled = !enabled;
+    ui.seaOpacity.disabled = !enabled;
+  };
+
+  ui.seaEnabled.addEventListener("change", (event) => {
+    state.styles.seaEnabled = event.target.checked;
+    syncSeaControls();
+    updateSea();
+    scheduleSave();
+  });
+
+  ui.seaFill.addEventListener("input", (event) => {
+    state.styles.seaFill = event.target.value;
+    updateSea();
+    scheduleSave();
+  });
+
+  ui.seaOpacity.addEventListener("input", (event) => {
+    state.styles.seaOpacity = Number(event.target.value) / 100;
+    updateSea();
+    scheduleSave();
+  });
+
+  // Disputes enabled toggle
+  ui.disputesEnabled?.addEventListener("change", (e) => {
+    state.disputes.enabled = e.target.checked;
+
+    // Force tint only (in case old saved states exist)
+    state.disputes.style = "tint";
+
+    updateMap();
+    scheduleSave();
+    renderDisputesListUI();
+  });
+
+  // Disputed colour controls
+  ui.disputedMatchSelected?.addEventListener("change", () => {
+    state.styles.disputedMatchSelected = ui.disputedMatchSelected.checked;
+
+    if (ui.disputedFill) {
+      ui.disputedFill.disabled = !!state.styles.disputedMatchSelected;
+
+      // Keep the UI colour in sync when matching
+      if (state.styles.disputedMatchSelected) {
+        ui.disputedFill.value = state.styles.selectedFill;
+      }
+    }
+
+    updateMap();
+    scheduleSave();
+  });
+
+  ui.disputedFill?.addEventListener("input", () => {
+    state.styles.disputedFill = ui.disputedFill.value;
+
+    // If the user touches the picker, they’re choosing custom
+    state.styles.disputedMatchSelected = false;
+    if (ui.disputedMatchSelected) ui.disputedMatchSelected.checked = false;
+    ui.disputedFill.disabled = false;
+
+    updateMap();
+    scheduleSave();
+  });
+
+  // Disputed list: Select all / Select none (group-based)
+  if (ui.disputesSelectAll) {
+    ui.disputesSelectAll.addEventListener("click", () => {
+      // Turn overlay on so result is visible
+      state.disputes.enabled = true;
+      if (ui.disputesEnabled) ui.disputesEnabled.checked = true;
+
+      // Force tint only
+      state.disputes.style = "tint";
+
+      // Enable all groups by clearing "false" overrides
+      if (state.disputes?.enabledGroups instanceof Map) {
+        state.disputes.enabledGroups.clear();
+      } else {
+        state.disputes.enabledGroups = new Map();
+      }
+
+      renderDisputesListUI?.();
+      updateMap();
+      scheduleSave();
+    });
+  }
+
+  if (ui.disputesSelectNone) {
+    ui.disputesSelectNone.addEventListener("click", () => {
+      // Turn overlay on so result is visible
+      state.disputes.enabled = true;
+      if (ui.disputesEnabled) ui.disputesEnabled.checked = true;
+
+      // Force tint only
+      state.disputes.style = "tint";
+
+      // Disable all groups explicitly
+      if (!(state.disputes?.enabledGroups instanceof Map)) {
+        state.disputes.enabledGroups = new Map();
+      }
+
+      (state.disputes.groupList || []).forEach((g) => {
+        state.disputes.enabledGroups.set(g.id, false);
+      });
+
+      renderDisputesListUI?.();
+      updateMap();
+      scheduleSave();
+    });
+  }
+
+  // You said: remove hatch/outline and keep only tint.
+  // So do NOT attach ui.disputesStyle listener anymore.
+  // ui.disputesStyle?.addEventListener("change", ...)  <-- remove this
+
+  ui.disputesLabels?.addEventListener("change", (e) => {
+    state.disputes.labels = e.target.checked;
+    updateMap();
+    scheduleSave();
+  });
+
+  console.log("disputes controls found", {
+    enabled: !!ui.disputesEnabled,
+    style: !!ui.disputesStyle, // this may exist in DOM, but we no longer wire it
+    labels: !!ui.disputesLabels,
+    selectAll: !!ui.disputesSelectAll,
+    selectNone: !!ui.disputesSelectNone,
+  });
+
   ui.resetColors.addEventListener("click", resetColors);
   ui.resetAll.addEventListener("click", resetAll);
   ui.addGroup.addEventListener("click", addGroup);
@@ -1349,6 +2166,7 @@ const attachEvents = () => {
   ui.isolateSelected.addEventListener("click", isolateSelected);
   ui.hideNoData.addEventListener("click", hideNoData);
   ui.unhideAll.addEventListener("click", unhideAll);
+
   ui.csvInput.addEventListener("change", async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -1356,6 +2174,7 @@ const attachEvents = () => {
     applyChoropleth(rows);
     ui.dataWarnings.innerHTML = state.choropleth.warnings.map((warning) => `<div>${warning}</div>`).join("");
   });
+
   ui.applyChoropleth.addEventListener("click", () => {
     if (state.choropleth.data.size) {
       state.choropleth.active = true;
@@ -1365,6 +2184,7 @@ const attachEvents = () => {
       scheduleSave();
     }
   });
+
   ui.clearChoropleth.addEventListener("click", () => {
     state.choropleth.active = false;
     state.choropleth.data.clear();
@@ -1373,31 +2193,41 @@ const attachEvents = () => {
     renderLegendEditor();
     scheduleSave();
   });
+
   ui.addText.addEventListener("click", () => {
     state.mode = "text";
     setMode("text");
   });
+
   ui.addPin.addEventListener("click", () => {
     state.mode = "pin";
     setMode("pin");
   });
+
   ui.annotationColor.addEventListener("input", () => scheduleSave());
   ui.annotationSize.addEventListener("input", () => scheduleSave());
   ui.annotationBg.addEventListener("input", () => scheduleSave());
+
   ui.saveSnapshot.addEventListener("click", saveSnapshot);
+
   ui.backgroundColor.addEventListener("input", (event) => {
     state.styles.background = event.target.value;
     mapSvg.style("background", state.styles.background);
     scheduleSave();
   });
+
   ui.importJson.addEventListener("click", importProject);
   ui.exportJson.addEventListener("click", exportProject);
+
   ui.exportSvg.addEventListener("click", exportSvg);
   ui.exportSvgAlt.addEventListener("click", exportSvg);
+
   ui.exportPng.addEventListener("click", () => exportRaster("png", false));
   ui.exportPngAlt.addEventListener("click", () => exportRaster("png", false));
+
   ui.exportJpg.addEventListener("click", () => exportRaster("jpeg", false));
   ui.exportJpgAlt.addEventListener("click", () => exportRaster("jpeg", false));
+
   ui.exportTransparent.addEventListener("click", () => {
     if (!state.paidUnlock) {
       alert("Transparent PNG is locked. Please unlock first.");
@@ -1405,27 +2235,33 @@ const attachEvents = () => {
     }
     exportRaster("png", true);
   });
+
   ui.unlockTransparent.addEventListener("click", unlockTransparent);
+
   ui.projectionSelect.addEventListener("change", (event) => {
     state.projectionType = event.target.value;
     renderMap();
     scheduleSave();
   });
+
   ui.zoomIn.addEventListener("click", () => mapSvg.transition().call(zoomBehavior.scaleBy, 1.2));
   ui.zoomOut.addEventListener("click", () => mapSvg.transition().call(zoomBehavior.scaleBy, 0.8));
+
   ui.fitWorld.addEventListener("click", () => {
     mapSvg.transition().call(zoomBehavior.transform, d3.zoomIdentity);
     state.zoomTransform = d3.zoomIdentity;
   });
+
   ui.modeSelect.addEventListener("click", () => setMode("select"));
   ui.modeText.addEventListener("click", () => setMode("text"));
   ui.modePin.addEventListener("click", () => setMode("pin"));
+
   let resizePending = false;
+
   const scheduleStableMapRender = () => {
-    if (resizePending) {
-      return;
-    }
+    if (resizePending) return;
     resizePending = true;
+
     if (!mapWrap) {
       requestAnimationFrame(() => {
         resizePending = false;
@@ -1433,13 +2269,25 @@ const attachEvents = () => {
       });
       return;
     }
+
     let lastWidth = 0;
     let lastHeight = 0;
     let stableFrames = 0;
+
     const checkStableSize = () => {
-      const { width, height } = mapWrap.getBoundingClientRect();
+      const rect = mapWrap.getBoundingClientRect();
+      const pad =
+        Number(getComputedStyle(mapWrap).getPropertyValue("--map-pad").trim().replace("px", "")) || 0;
+
+      const width = Math.max(1, Math.round(rect.width));
+      const height = Math.max(1, Math.round(rect.height));
+
+      const innerWidth = Math.max(1, width - pad * 2);
+      const innerHeight = Math.max(1, height - pad * 2);
+
       const nextWidth = Math.round(width);
       const nextHeight = Math.round(height);
+
       if (nextWidth === 0 || nextHeight === 0) {
         stableFrames = 0;
       } else if (nextWidth === lastWidth && nextHeight === lastHeight) {
@@ -1449,63 +2297,146 @@ const attachEvents = () => {
         lastHeight = nextHeight;
         stableFrames = 0;
       }
+
       if (stableFrames >= 1) {
         resizePending = false;
         renderMapIfSizeChanged();
         return;
       }
+
       requestAnimationFrame(checkStableSize);
     };
+
     requestAnimationFrame(checkStableSize);
   };
 
+  syncSeaControls();
+
   window.addEventListener("resize", scheduleStableMapRender);
+
   if (mapWrap && "ResizeObserver" in window) {
     const resizeObserver = new ResizeObserver(() => {
       scheduleStableMapRender();
     });
     resizeObserver.observe(mapWrap);
   }
+
   scheduleStableMapRender();
 };
 
+
 const bootstrap = async () => {
   try {
-    const [topology, isoData] = await Promise.all([
+    console.log("DATA_SOURCES", DATA_SOURCES);
+
+	const [topology, isoData, disputedData] = await Promise.all([
       d3.json(DATA_SOURCES.topojson),
       fetchJsonWithFallback(DATA_SOURCES.iso),
+	  d3.json(DATA_SOURCES.disputed),
     ]);
-    const isoByName = new Map();
-    const isoByNumeric = new Map();
-    if (isoData?.countries) {
-      isoData.countries.forEach((country) => {
-        isoByName.set(normalize(country.country), country.alpha3);
-        if (country.numeric) {
-          isoByNumeric.set(String(country.numeric).padStart(3, "0"), country.alpha3);
-        }
-      });
-    }
+	state.disputes.features = disputedData?.features || [];
+const getDisputeGroupLabel = (f) => {
+  const p = f?.properties || {};
+
+  // Try a few likely Natural Earth fields first (defensive).
+  // If none exist, fall back to your current label logic.
+  const group =
+    p.admin ||
+    p.ADMIN ||
+    p.sov_a3 ||
+    p.SOV_A3 ||
+    p.geonunit ||
+    p.GEONUNIT ||
+    p.name ||
+    p.NAME;
+
+  return (group && String(group).trim()) ? String(group).trim() : "Other";
+};
+
+const groups = new Map(); // label -> { id, label, features[] }
+
+state.disputes.features.forEach((f, i) => {
+  const label = getDisputeGroupLabel(f);
+  const id = normalize(label).replace(/\s+/g, "-") || `group-${i}`;
+
+  if (!groups.has(id)) {
+    groups.set(id, { id, label, features: [] });
+  }
+  groups.get(id).features.push(f);
+});
+
+// Convert to array for UI
+state.disputes.groupList = Array.from(groups.values()).sort((a, b) =>
+  a.label.localeCompare(b.label)
+);
+
+// Default enable all groups if first run
+if (!state.disputes.enabledGroups || state.disputes.enabledGroups.size === 0) {
+  state.disputes.enabledGroups = new Map();
+  state.disputes.groupList.forEach((g) => state.disputes.enabledGroups.set(g.id, true));
+}
+
+	const isoByName = new Map();
+	const isoByNumeric = new Map();
+
+	// Your iso-3166-1.json is an array of objects like:
+	// { name, "alpha-3", "country-code", ... }
+	// But keep this robust in case you later swap datasets.
+	const isoRows = Array.isArray(isoData)
+	  ? isoData
+	  : (isoData?.countries || isoData?.data || []);
+
+	isoRows.forEach((row) => {
+	  const name =
+		row.name ??
+		row.country ??
+		row.Country ??
+		row.countryName ??
+		row.country_name;
+
+	  const alpha3 =
+		row["alpha-3"] ??
+		row.alpha3 ??
+		row.alpha_3 ??
+		row.alpha ??
+		row["Alpha-3"];
+
+	  const numeric =
+		row["country-code"] ??
+		row.numeric ??
+		row.countryCode ??
+		row.country_code ??
+		row["country code"];
+
+	  if (!name || !alpha3) return;
+
+	  const a3 = String(alpha3).toUpperCase();
+	  isoByName.set(normalize(String(name)), a3);
+
+	  if (numeric != null && numeric !== "") {
+		isoByNumeric.set(String(numeric).padStart(3, "0"), a3);
+	  }
+	});
 
     const geojson = feature(topology, topology.objects.countries);
-    state.features = geojson.features
-      .filter((feature) => feature.id !== "010" && feature.properties?.name !== "Antarctica")
-      .map((feature) => {
-        const name = feature.properties?.name || "Unknown";
-        const normalized = normalize(name);
-        const iso3 =
-          aliasMap.get(normalized) ||
-          isoByName.get(normalized) ||
-          isoByNumeric.get(String(feature.id));
-        return {
-          ...feature,
-          properties: {
-            ...feature.properties,
-            name,
-            iso3: iso3 || `UNK-${feature.id}`,
-          },
-        };
-      });
+	state.features = geojson.features
+	  .map((feature) => {
+		const name = feature.properties?.name || "Unknown";
+		const normalized = normalize(name);
+		const iso3 =
+		  aliasMap.get(normalized) ||
+		  isoByName.get(normalized) ||
+		  isoByNumeric.get(String(feature.id));
 
+		return {
+		  ...feature,
+		  properties: {
+			...feature.properties,
+			name,
+			iso3: iso3 || `UNK-${feature.id}`,
+		  },
+		};
+	  });
     state.features.forEach((feature) => {
       state.countries.set(feature.properties.iso3, {
         name: feature.properties.name,
@@ -1513,6 +2444,7 @@ const bootstrap = async () => {
       });
     });
 
+	await loadPresetGroups();
     state.groups = [...presetGroups.map((group) => ({ ...group, id: crypto.randomUUID() }))];
 
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -1527,6 +2459,7 @@ const bootstrap = async () => {
     renderSnapshots();
     renderSelectionList();
     renderLegendEditor();
+	renderDisputesListUI();
     attachEvents();
     setMode("select");
     mapSvg.style("background", state.styles.background);
@@ -1534,5 +2467,5 @@ const bootstrap = async () => {
     console.error("Failed to load data", error);
   }
 };
-
+// select
 bootstrap();
