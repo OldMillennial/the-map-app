@@ -1,0 +1,93 @@
+[
+  { "name": "European Union (EU)", "iso3List": ["AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE"] },
+  { "name": "OECD", "iso3List": ["AUS", "AUT", "BEL", "CAN", "CHL", "COL", "CRI", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "ISL", "IRL", "ISR", "ITA", "JPN", "KOR", "LVA", "LTU", "LUX", "MEX", "NLD", "NZL", "NOR", "POL", "PRT", "SVK", "SVN", "ESP", "SWE", "CHE", "TUR", "GBR", "USA"] },
+  { "name": "English (Official)", "iso3List": ["AUS", "CAN", "GBR", "IRL", "NZL", "USA", "ZAF", "IND", "PAK", "NGA", "GHA", "KEN", "UGA", "TZA", "ZMB", "ZWE", "PHL", "SGP"] },
+  { "name": "BRICS", "iso3List": ["BRA", "RUS", "IND", "CHN", "ZAF"] },
+  { "name": "G7", "iso3List": ["CAN", "FRA", "DEU", "ITA", "JPN", "GBR", "USA"] },
+  { "name": "G20", "iso3List": ["ARG", "AUS", "BRA", "CAN", "CHN", "FRA", "DEU", "IND", "IDN", "ITA", "JPN", "KOR", "MEX", "RUS", "SAU", "ZAF", "TUR", "GBR", "USA", "EUU"] },
+  { "name": "ASEAN", "iso3List": ["BRN", "KHM", "IDN", "LAO", "MYS", "MMR", "PHL", "SGP", "THA", "VNM"] },
+  { "name": "GCC", "iso3List": ["BHR", "KWT", "OMN", "QAT", "SAU", "ARE"] },
+  { "name": "African Union", "iso3List": ["DZA", "AGO", "BEN", "BWA", "BFA", "BDI", "CPV", "CMR", "CAF", "TCD", "COM", "COG", "COD", "CIV", "DJI", "EGY", "GNQ", "ERI", "SWZ", "ETH", "GAB", "GMB", "GHA", "GIN", "GNB", "KEN", "LSO", "LBR", "LBY", "MDG", "MWI", "MLI", "MRT", "MUS", "MAR", "MOZ", "NAM", "NER", "NGA", "RWA", "STP", "SEN", "SYC", "SLE", "SOM", "ZAF", "SSD", "SDN", "TZA", "TGO", "TUN", "UGA", "ZMB", "ZWE"] },
+  { "name": "OPEC", "iso3List": ["DZA", "AGO", "COD", "GNQ", "GAB", "IRN", "IRQ", "KWT", "LBY", "NGA", "SAU", "ARE", "VEN"] },
+  { "name": "SAARC", "iso3List": ["AFG", "BGD", "BTN", "IND", "MDV", "NPL", "PAK", "LKA"] },
+  { "name": "Mercosur", "iso3List": ["ARG", "BOL", "BRA", "PRY", "URY", "VEN"] },
+  { "name": "USMCA", "iso3List": ["CAN", "MEX", "USA"] },
+  { "name": "Global South", "iso3List": ["DZA", "AGO", "ARG", "BGD", "BOL", "BRA", "CHL", "CHN", "COL", "COD", "EGY", "ETH", "GHA", "IND", "IDN", "IRN", "IRQ", "KEN", "MEX", "MAR", "NGA", "PAK", "PER", "PHL", "RUS", "SAU", "ZAF", "THA", "TUR", "VNM"] },
+  { "name": "Africa", "iso3List": [
+      "DZA","AGO","BEN","BWA","BFA","BDI","CPV","CMR","CAF","TCD","COM","COG","COD",
+      "CIV","DJI","EGY","GNQ","ERI","SWZ","ETH","GAB","GMB","GHA","GIN","GNB","KEN",
+      "LSO","LBR","LBY","MDG","MWI","MLI","MRT","MUS","MAR","MOZ","NAM","NER","NGA",
+      "RWA","STP","SEN","SYC","SLE","SOM","ZAF","SSD","SDN","TZA","TGO","TUN","UGA",
+      "ZMB","ZWE"
+    ]
+  },
+  {
+    "name": "Europe",
+    "iso3List": [
+      "ALB","AND","AUT","BEL","BGR","BIH","BLR","CHE","CYP","CZE","DEU","DNK","ESP",
+      "EST","FIN","FRA","GBR","GRC","HRV","HUN","IRL","ISL","ITA","LIE","LTU","LUX",
+      "LVA","MCO","MDA","MKD","MLT","MNE","NLD","NOR","POL","PRT","ROU","RUS","SMR",
+      "SRB","SVK","SVN","SWE","UKR","VAT"
+    ]
+  },
+  {
+    "name": "Asia",
+    "iso3List": [
+      "AFG","ARM","AZE","BGD","BHR","BRN","BTN","CHN","GEO","IDN","IND","IRN","IRQ",
+      "ISR","JOR","JPN","KAZ","KGZ","KHM","KOR","KWT","LAO","LBN","LKA","MMR","MNG",
+      "MYS","NPL","OMN","PAK","PHL","PRK","QAT","SAU","SGP","SYR","THA","TJK","TKM",
+      "TLS","TUR","TWN","UZB","VNM","YEM"
+    ]
+  },
+  {
+    "name": "North America",
+    "iso3List": [
+      "CAN","USA","MEX","BLZ","CRI","GTM","HND","NIC","PAN","SLV",
+      "CUB","DOM","HTI","JAM","TTO","BRB","BHS","ATG","DMA","GRD",
+      "KNA","LCA","VCT"
+    ]
+  },
+  {
+    "name": "South America",
+    "iso3List": [
+      "ARG","BOL","BRA","CHL","COL","ECU","GUY","PER","PRY","SUR","URY","VEN"
+    ]
+  },
+  {
+    "name": "Oceania",
+    "iso3List": [
+      "AUS","NZL","FJI","PNG","SLB","VUT","WSM","TON","KIR","TUV","NRU","PLW","FSM",
+      "MHL"
+    ]
+  },
+  {
+    "name": "Antarctica",
+    "iso3List": ["ATA"]
+  },
+  {
+  "name": "Middle East",
+  "iso3List": [
+    "BHR","CYP","EGY","IRN","IRQ","ISR","JOR","KWT","LBN","OMN",
+    "QAT","SAU","SYR","TUR","ARE","YEM","PSE"
+  ]
+},
+{
+  "name": "LATAM",
+  "iso3List": [
+    "ARG","BOL","BRA","CHL","COL","ECU","GUY","PER","PRY","SUR","URY","VEN",
+    "BLZ","CRI","GTM","HND","NIC","PAN","SLV",
+    "CUB","DOM","HTI","JAM","TTO","BRB","BHS","ATG","DMA","GRD",
+    "KNA","LCA","VCT"
+  ]
+},
+{
+  "name": "APAC",
+  "iso3List": [
+    "AFG","BGD","BTN","BRN","CHN","IDN","IND","JPN","KHM","KOR",
+    "LAO","LKA","MMR","MNG","MYS","NPL","PAK","PHL","PRK","SGP",
+    "THA","TLS","TWN","VNM",
+    "AUS","NZL"
+  ]
+}
+
+]
