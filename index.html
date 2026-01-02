@@ -86,9 +86,33 @@
             <input id="nodata-fill" type="color" value="#cbd5f5" />
           </div>
 		  <div class="field">
-		  <label for="country-stroke">Country outline</label>
-		  <input id="country-stroke" type="color" value="#94a3b8" />
-		</div>
+			<label class="row">
+			  <span>Country borders</span>
+			  <span class="inline">
+				<input type="checkbox" id="country-borders-enabled" checked />
+			  </span>
+			</label>
+			<div class="field-row">
+			  <input id="country-stroke" type="color" value="#94a3b8" />
+			  <input id="country-stroke-width" type="range" min="0" max="3" step="0.1" value="0.5" />
+			</div>
+			<small>Width</small>
+		  </div>
+
+		  <div class="field">
+			<label class="row">
+			  <span>Coastline</span>
+			  <span class="inline">
+				<input type="checkbox" id="coast-borders-enabled" checked />
+			  </span>
+			</label>
+			<div class="field-row">
+			  <input id="coast-stroke" type="color" value="#94a3b8" />
+			  <input id="coast-stroke-width" type="range" min="0" max="3" step="0.1" value="0.5" />
+			</div>
+			<small>Width</small>
+		  </div>
+
           <div class="inline-actions">
             <button class="ghost" id="reset-colors">Reset colors</button>
             <button class="ghost" id="reset-all">Reset all</button>
@@ -254,6 +278,13 @@
 			  <option value="geoOrthographic">Orthographic</option>
 			  <option value="naturalEarthSketchy">Natural Earth (Sketchy)</option>
             </select>
+			<label for="map-detail">Detail</label>
+<select id="map-detail">
+  <option value="110m">110m (fast)</option>
+  <option value="50m">50m</option>
+  <option value="10m">10m (slow)</option>
+</select>
+
           </div>
           <div class="toolbar-group">
             <button class="ghost" id="zoom-in">Zoom +</button>

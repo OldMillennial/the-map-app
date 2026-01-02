@@ -217,6 +217,10 @@ button.text-button {
   cursor: pointer;
 }
 
+.field-row input[type="range"] {
+  flex: 1;
+}
+
 .country-swatch .ghost {
   padding: 6px 8px;
   border-radius: 10px;

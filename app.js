@@ -1,10 +1,21 @@
+// Still a Maldives problem
+
 import * as d3 from "https://esm.sh/d3@7";
 import { feature } from "https://esm.sh/topojson-client@3";
 import * as d3GeoProjection from "https://esm.sh/d3-geo-projection@4";
 import Papa from "https://esm.sh/papaparse@5.4.1";
 
 const DATA_SOURCES = {
-  topojson: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
+  countries: {
+    "110m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json",
+    "50m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json",
+    "10m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-10m.json",
+  },
+  land: {
+    "110m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json",
+    "50m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-50m.json",
+    "10m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-10m.json",
+  },
   iso: "./data/iso-3166-1.json",
   disputed: "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_50m_admin_0_breakaway_disputed_areas.geojson",
 };
@@ -28,6 +39,11 @@ const ui = {
   nonSelectedFill: document.querySelector("#nonselected-fill"),
   nonSelectedOpacity: document.querySelector("#nonselected-opacity"),
   countryStroke: document.querySelector("#country-stroke"),
+  countryStrokeWidth: document.querySelector("#country-stroke-width"),
+  countryBordersEnabled: document.querySelector("#country-borders-enabled"),
+  coastStroke: document.querySelector("#coast-stroke"),
+  coastStrokeWidth: document.querySelector("#coast-stroke-width"),
+  coastBordersEnabled: document.querySelector("#coast-borders-enabled"),
   noDataFill: document.querySelector("#nodata-fill"),
   resetColors: document.querySelector("#reset-colors"),
   resetAll: document.querySelector("#reset-all"),
@@ -65,6 +81,7 @@ const ui = {
   unlockTransparent: document.querySelector("#unlock-transparent"),
   exportTransparent: document.querySelector("#export-transparent"),
   projectionSelect: document.querySelector("#projection"),
+  mapDetail: document.querySelector("#map-detail"),
   zoomIn: document.querySelector("#zoom-in"),
   zoomOut: document.querySelector("#zoom-out"),
   fitWorld: document.querySelector("#fit-world"),
@@ -96,6 +113,11 @@ const defaultState = () => ({
     nonSelectedOpacity: 0.7,
     noDataFill: "#cbd5f5",
 	countryStroke: "#94a3b8",
+	countryStrokeWidth: 0.5,
+	countryBordersEnabled: true,
+	coastStroke: "#94a3b8",
+	coastStrokeWidth: 0.5,
+	coastBordersEnabled: true,
     background: "#ffffff",
 	seaEnabled: false,
 	seaFill: "#93c5fd",   // only used when seaEnabled = true
@@ -126,6 +148,7 @@ const defaultState = () => ({
   pins: [],
   texts: [],
   projectionType: "mercator",
+  mapDetail: "110m",
   zoomTransform: d3.zoomIdentity,
   mode: "select",
   snapshots: [],
@@ -154,6 +177,7 @@ let legendLayer;
 let sphereLayer;
 let sketchLayer;
 let disputeLayer;
+let landLayer;
 let lastMapSize = { width: 0, height: 0 };
 const zoomBehavior = d3
   .zoom()
@@ -201,9 +225,11 @@ if (disputeLayer) {
   disputeLayer.selectAll("text.dispute-label")
     .attr("transform", (d) => `translate(${path.centroid(d)})`);
 }
+if (landLayer) {
+  landLayer.selectAll("path.land-outline").attr("d", path);
+}
 if (sphereLayer) {
   sphereLayer.selectAll("path.globe-outline").attr("d", path);
-  sphereLayer.selectAll("path.sea-sphere").attr("d", path);
 }
 updateAnnotations();
 renderLegend();
@@ -327,6 +353,166 @@ const fetchJsonWithFallback = async (urls) => {
     }
   }
   return null;
+};
+const buildIsoIndexes = (isoData) => {
+  const isoByName = new Map();
+  const isoByNumeric = new Map();
+
+  const isoRows = Array.isArray(isoData)
+    ? isoData
+    : (isoData?.countries || isoData?.data || []);
+
+  isoRows.forEach((row) => {
+    const name =
+      row.name ??
+      row.country ??
+      row.Country ??
+      row.countryName ??
+      row.country_name;
+
+    const alpha3 =
+      row["alpha-3"] ??
+      row.alpha3 ??
+      row.alpha_3 ??
+      row.alpha ??
+      row["Alpha-3"];
+
+    const numeric =
+      row["country-code"] ??
+      row.numeric ??
+      row.countryCode ??
+      row.country_code ??
+      row["country code"];
+
+    if (!name || !alpha3) return;
+
+    const a3 = String(alpha3).toUpperCase();
+    isoByName.set(normalize(String(name)), a3);
+
+    if (numeric != null && numeric !== "") {
+      isoByNumeric.set(String(numeric).padStart(3, "0"), a3);
+    }
+  });
+
+  return { isoByName, isoByNumeric };
+};
+
+const applyTopologyToState = (topology, isoByName, isoByNumeric) => {
+  const geojson = feature(topology, topology.objects.countries);
+
+  state.features = geojson.features
+    .filter((feature) => feature.id !== "010" && feature.properties?.name !== "Antarctica")
+    .map((feature) => {
+      const name = feature.properties?.name || "Unknown";
+      const normalized = normalize(name);
+
+      const id3 = feature.id == null ? "" : String(feature.id).padStart(3, "0");
+
+      const iso3 =
+        aliasMap.get(normalized) ||
+        isoByName.get(normalized) ||
+        isoByNumeric.get(id3);
+
+      const resolvedIso3 = iso3 || `UNK-${id3 || feature.id}`;
+
+      // ✅ OPTION B: Drop Maldives at 10m detail to avoid the world-sized polygon issue
+      if (state.mapDetail === "10m" && resolvedIso3 === "MDV") {
+        return null;
+      }
+
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          name,
+          iso3: resolvedIso3,
+        },
+        __geoArea: d3.geoArea(feature), // steradians, used for sorting
+      };
+    })
+    .filter(Boolean)
+    // Biggest first (back). Smallest last (on top).
+    .sort((a, b) => (b.__geoArea || 0) - (a.__geoArea || 0));
+
+  // DEBUG: find suspiciously large features (world-sized polygons)
+  const areas = state.features
+    .map((f) => ({
+      iso3: f.properties.iso3,
+      name: f.properties.name,
+      id: f.id,
+      area: d3.geoArea(f),
+    }))
+    .sort((a, b) => b.area - a.area)
+    .slice(0, 10);
+
+  console.log("top 10 geo areas:", areas);
+
+  // Rebuild countries lookup
+  state.countries = new Map();
+  state.features.forEach((feature) => {
+    state.countries.set(feature.properties.iso3, {
+      name: feature.properties.name,
+      iso3: feature.properties.iso3,
+    });
+  });
+};
+
+const loadTopologyForDetail = async (detail) => {
+  const key = detail || "110m";
+  const url = DATA_SOURCES.countries[key] || DATA_SOURCES.countries["110m"];
+
+  const topology = await d3.json(url);
+
+  console.log("topology keys", Object.keys(topology || {}));
+  console.log("objects keys", Object.keys(topology?.objects || {}));
+  console.log("countries obj type", topology?.objects?.countries?.type);
+  console.log("arcs length", topology?.arcs?.length);
+
+  return topology;
+};
+
+const loadLandTopologyForDetail = async (detail) => {
+  const key = detail || "110m";
+  const url = DATA_SOURCES.land[key] || DATA_SOURCES.land["110m"];
+
+  const topology = await d3.json(url);
+
+  console.log("land topology keys", Object.keys(topology || {}));
+  console.log("land objects keys", Object.keys(topology?.objects || {}));
+  console.log("land obj type", topology?.objects?.land?.type);
+  console.log("land arcs length", topology?.arcs?.length);
+
+  return topology;
+};
+
+const reloadMapDetail = async () => {
+  // Preserve these across a topology swap
+  const prevSelection = new Set(state.selection);
+  const prevHidden = new Set(state.hidden);
+  const prevCountryStyles = new Map(state.countryStyles);
+
+  const topology = await loadTopologyForDetail(state.mapDetail);
+
+  // iso indexes are built once and stored (see bootstrap changes below)
+  applyTopologyToState(topology, state._isoByName, state._isoByNumeric);
+
+  const landTopology = await loadLandTopologyForDetail(state.mapDetail);
+  state.landFeature = feature(landTopology, landTopology.objects.land);
+
+  // Restore and drop anything that no longer exists in the new dataset
+  state.selection = new Set([...prevSelection].filter((iso3) => state.countries.has(iso3)));
+  state.hidden = new Set([...prevHidden].filter((iso3) => state.countries.has(iso3)));
+
+  state.countryStyles = new Map(
+    [...prevCountryStyles.entries()].filter(([iso3]) => state.countries.has(iso3))
+  );
+
+  // Full re-render, because paths change with new topology
+  renderMap();
+  updateMap();
+  renderSelectionList();
+  renderSelectedCountries();
+  renderGroups();
 };
 
 const hashToUnit = (str) => {
@@ -565,9 +751,10 @@ const renderMap = () => {
     .attr("class", "map-root")
     .attr("transform", `translate(${pad},${pad})`);
 
-  sphereLayer = root.append("g").attr("class", "sphere");
-  countryLayer = root.append("g").attr("class", "countries");
-  disputeLayer = root.append("g").attr("class", "disputes");
+sphereLayer = root.append("g").attr("class", "sphere");
+disputeLayer = root.append("g").attr("class", "disputes");  // below
+landLayer = mapSvg.append("g").attr("class", "land-layer");
+countryLayer = root.append("g").attr("class", "countries"); // above
   sketchLayer = root.append("g").attr("class", "sketch").attr("pointer-events", "none");
   pinLayer = root.append("g").attr("class", "pins");
   textLayer = root.append("g").attr("class", "texts");
@@ -611,18 +798,51 @@ if (state.projectionType === "geoOrthographic") {
     .attr("opacity", 0.35)
     .attr("pointer-events", "none");
 }
+console.log("features:", state.features.length);
+
+const keys = state.features.map(d =>
+  d.properties.iso3 || String(d.id) || d.properties.name
+);
+
+console.log("unique keys:", new Set(keys).size);
+
+// Show top duplicates
+const counts = new Map();
+keys.forEach(k => counts.set(k, (counts.get(k) || 0) + 1));
+console.log(
+  "duplicates:",
+  [...counts.entries()].filter(([,c]) => c > 1).slice(0, 20)
+);
+
+  if (landLayer && state.landFeature) {
+    landLayer
+      .selectAll("path.land-outline")
+      .data([state.landFeature])
+      .join("path")
+      .attr("class", "land-outline")
+      .attr("d", path)
+      .attr("fill", "none")
+      .attr("stroke", state.styles.coastStroke || "#94a3b8")
+      .attr("stroke-width", state.styles.coastStrokeWidth ?? 0.5)
+      .attr("pointer-events", "none");
+  }
 
   countryLayer
     .selectAll("path")
-    .data(state.features, (d) => d.properties.iso3)
+	
+    .data(state.features, (d) => d.properties._key)
     .join("path")
     .attr("class", "country")
     .attr("data-iso3", (d) => d.properties.iso3)
     .attr("d", path)
+	  .style("pointer-events", (d) =>
+    state.mapDetail === "10m" && d.properties.iso3 === "MDV" ? "none" : "auto"
+  )
     .on("pointerover", handlePointerOver)
     .on("pointermove", handlePointerMove)
     .on("pointerout", handlePointerOut)
     .on("click", handleCountryClick);
+	console.log("rendered country paths:", countryLayer.selectAll("path.country").size());
  renderSketch();
 
 	mapSvg.on(".drag", null);
@@ -640,6 +860,7 @@ if (state.projectionType === "geoOrthographic") {
 	  renderLegend();
 	  renderSketch();
 	};
+// console.log("rendered country paths:", countryLayer.selectAll("path.country").size());
 
 const renderMapIfSizeChanged = () => {
   if (mapWrap) {
@@ -668,6 +889,17 @@ const updateMap = () => {
 if (sphereLayer && state.projectionType === "geoOrthographic") {
   sphereLayer.selectAll("path.globe-outline").attr("d", path);
 }
+  const bordersOn = state.styles.countryBordersEnabled !== false;
+  const coastOn = state.styles.coastBordersEnabled !== false;
+
+  if (landLayer) {
+    landLayer
+      .selectAll("path.land-outline")
+      .attr("stroke", coastOn ? (state.styles.coastStroke || "#94a3b8") : "none")
+      .attr("stroke-width", coastOn ? (state.styles.coastStrokeWidth ?? 0.5) : 0)
+      .attr("display", coastOn ? null : "none");
+  }
+
   countryLayer
     .selectAll("path")
 	.attr("display", (d) => {
@@ -677,8 +909,8 @@ if (sphereLayer && state.projectionType === "geoOrthographic") {
 	})
     .attr("fill", (d) => getCountryFill(d.properties.iso3))
     .attr("fill-opacity", (d) => getCountryOpacity(d.properties.iso3))
-    .attr("stroke", state.styles.countryStroke || "#94a3b8")
-    .attr("stroke-width", 0.5);
+    .attr("stroke", bordersOn ? (state.styles.countryStroke || "#94a3b8") : "none")
+    .attr("stroke-width", bordersOn ? (state.styles.countryStrokeWidth ?? 0.5) : 0);
   updateDisputes(); 
   renderSketch();
   updateSelectionSummary();
@@ -712,42 +944,52 @@ const updateSea = () => {
 const updateDisputes = () => {
   if (!disputeLayer) return;
 
-if (!state.disputes?.enabled || !state.disputes.features?.length) {
-  disputeLayer.selectAll("*").remove();
-  return;
-}
+  // If disputes are off or no data, clear the layer and leave
+  if (!state.disputes?.enabled || !state.disputes.features?.length) {
+    disputeLayer.selectAll("*").remove();
+    return;
+  }
 
-const style = "tint";
-state.disputes.style = "tint";
-  
-const enabledFeatures =
-  state.disputes.groupList?.length
-    ? state.disputes.groupList
-        .filter((g) => state.disputes.enabledGroups?.get(g.id) !== false)
-        .flatMap((g) => g.features)
-    : state.disputes.features;
+  // Force tint only
+  state.disputes.style = "tint";
 
-if (!enabledFeatures.length) {
-  disputeLayer.selectAll("*").remove();
-  return;
-}
-const disputedFill =
-  state.styles?.disputedMatchSelected
-    ? state.styles.selectedFill
-    : (state.styles?.disputedFill || state.styles.selectedFill);
+  // Compute enabled features (group-based if available)
+  const enabledFeatures =
+    state.disputes.groupList?.length
+      ? state.disputes.groupList
+          .filter((g) => state.disputes.enabledGroups?.get(g.id) !== false)
+          .flatMap((g) => g.features)
+      : state.disputes.features;
 
-// Draw polygons (tint only)
-disputeLayer
-  .selectAll("path.dispute-area")
-  .data(enabledFeatures, (d, i) => d?.properties?.name || d?.id || i)
-  .join("path")
-  .attr("class", "dispute-area tint")
-  .attr("d", path)
-  .attr("fill", disputedFill)
-  .attr("fill-opacity", 1)
-  .attr("stroke", "none");
+  // ✅ log AFTER enabledFeatures exists
+  console.log("disputes", {
+    enabled: state.disputes?.enabled,
+    enabledFeatures: enabledFeatures.length,
+  });
 
-  // Labels
+  if (!enabledFeatures.length) {
+    disputeLayer.selectAll("*").remove();
+    return;
+  }
+
+  const disputedFill =
+    state.styles?.disputedMatchSelected
+      ? state.styles.selectedFill
+      : (state.styles?.disputedFill || state.styles.selectedFill);
+
+  // Draw polygons (tint only) and DO NOT block clicks
+  disputeLayer
+    .selectAll("path.dispute-area")
+    .data(enabledFeatures, (d, i) => d?.properties?.name || d?.id || i)
+    .join("path")
+    .attr("class", "dispute-area tint")
+    .attr("d", path)
+    .attr("fill", disputedFill)
+    .attr("fill-opacity", 1)
+    .attr("stroke", "none")
+    .attr("pointer-events", "none"); // ✅ critical
+
+  // Labels (also must not block clicks)
   disputeLayer.selectAll("text.dispute-label").remove();
   if (state.disputes.labels) {
     disputeLayer
@@ -757,9 +999,11 @@ disputeLayer
       .attr("class", "dispute-label")
       .attr("transform", (d) => `translate(${path.centroid(d)})`)
       .attr("text-anchor", "middle")
-      .text((d) => d?.properties?.name || "Disputed area");
+      .text((d) => d?.properties?.name || "Disputed area")
+      .attr("pointer-events", "none"); // ✅
   }
 };
+
 
 const getCountryFill = (iso3) => {
   if (state.choropleth.active) {
@@ -1000,6 +1244,46 @@ ui.countryStroke.addEventListener("input", () => {
   updateMap();
   scheduleSave();
 });
+
+if (ui.countryStrokeWidth) {
+  ui.countryStrokeWidth.addEventListener("input", () => {
+    state.styles.countryStrokeWidth = parseFloat(ui.countryStrokeWidth.value);
+    updateMap();
+    scheduleSave();
+  });
+}
+
+if (ui.countryBordersEnabled) {
+  ui.countryBordersEnabled.addEventListener("change", () => {
+    state.styles.countryBordersEnabled = ui.countryBordersEnabled.checked;
+    updateMap();
+    scheduleSave();
+  });
+}
+
+if (ui.coastStroke) {
+  ui.coastStroke.addEventListener("input", () => {
+    state.styles.coastStroke = ui.coastStroke.value;
+    updateMap();
+    scheduleSave();
+  });
+}
+
+if (ui.coastStrokeWidth) {
+  ui.coastStrokeWidth.addEventListener("input", () => {
+    state.styles.coastStrokeWidth = parseFloat(ui.coastStrokeWidth.value);
+    updateMap();
+    scheduleSave();
+  });
+}
+
+if (ui.coastBordersEnabled) {
+  ui.coastBordersEnabled.addEventListener("change", () => {
+    state.styles.coastBordersEnabled = ui.coastBordersEnabled.checked;
+    updateMap();
+    scheduleSave();
+  });
+}
 
 const renderSelectionList = () => {
   ui.annotationList.innerHTML = "";
@@ -1851,12 +2135,30 @@ const updateControls = () => {
   if (ui.countryStroke) {
     ui.countryStroke.value = state.styles.countryStroke || "#94a3b8";
   }
+  if (ui.countryStrokeWidth) {
+    ui.countryStrokeWidth.value = state.styles.countryStrokeWidth ?? 0.5;
+  }
+  if (ui.countryBordersEnabled) {
+    ui.countryBordersEnabled.checked = state.styles.countryBordersEnabled !== false;
+  }
+
+  if (ui.coastStroke) {
+    ui.coastStroke.value = state.styles.coastStroke || "#94a3b8";
+  }
+  if (ui.coastStrokeWidth) {
+    ui.coastStrokeWidth.value = state.styles.coastStrokeWidth ?? 0.5;
+  }
+  if (ui.coastBordersEnabled) {
+    ui.coastBordersEnabled.checked = state.styles.coastBordersEnabled !== false;
+  }
+
   ui.backgroundColor.value = state.styles.background;
   ui.scaleMode.value = state.choropleth.scaleMode;
   ui.bucketCount.value = state.choropleth.buckets;
   ui.minValue.value = state.choropleth.min ?? "";
   ui.maxValue.value = state.choropleth.max ?? "";
   ui.projectionSelect.value = state.projectionType;
+  if (ui.mapDetail) ui.mapDetail.value = state.mapDetail || "110m";
   ui.seaEnabled.checked = !!state.styles.seaEnabled;
   ui.seaFill.value = state.styles.seaFill || "#93c5fd";
   ui.seaOpacity.value = Math.round((state.styles.seaOpacity ?? 1) * 100);
@@ -2243,6 +2545,11 @@ const attachEvents = () => {
     renderMap();
     scheduleSave();
   });
+ui.mapDetail?.addEventListener("change", async (event) => {
+  state.mapDetail = event.target.value;
+  await reloadMapDetail();
+  scheduleSave();
+});
 
   ui.zoomIn.addEventListener("click", () => mapSvg.transition().call(zoomBehavior.scaleBy, 1.2));
   ui.zoomOut.addEventListener("click", () => mapSvg.transition().call(zoomBehavior.scaleBy, 0.8));
@@ -2329,128 +2636,78 @@ const bootstrap = async () => {
   try {
     console.log("DATA_SOURCES", DATA_SOURCES);
 
-	const [topology, isoData, disputedData] = await Promise.all([
-      d3.json(DATA_SOURCES.topojson),
+    const [isoData, disputedData] = await Promise.all([
       fetchJsonWithFallback(DATA_SOURCES.iso),
-	  d3.json(DATA_SOURCES.disputed),
+      d3.json(DATA_SOURCES.disputed),
     ]);
-	state.disputes.features = disputedData?.features || [];
-const getDisputeGroupLabel = (f) => {
-  const p = f?.properties || {};
 
-  // Try a few likely Natural Earth fields first (defensive).
-  // If none exist, fall back to your current label logic.
-  const group =
-    p.admin ||
-    p.ADMIN ||
-    p.sov_a3 ||
-    p.SOV_A3 ||
-    p.geonunit ||
-    p.GEONUNIT ||
-    p.name ||
-    p.NAME;
+    // Build ISO indexes once and stash them (so reloadMapDetail can reuse them)
+    const { isoByName, isoByNumeric } = buildIsoIndexes(isoData);
+    state._isoByName = isoByName;
+    state._isoByNumeric = isoByNumeric;
 
-  return (group && String(group).trim()) ? String(group).trim() : "Other";
-};
+    // --- Disputes setup ---
+    state.disputes.features = disputedData?.features || [];
 
-const groups = new Map(); // label -> { id, label, features[] }
+    const getDisputeGroupLabel = (f) => {
+      const p = f?.properties || {};
+      const group =
+        p.admin ||
+        p.ADMIN ||
+        p.sov_a3 ||
+        p.SOV_A3 ||
+        p.geonunit ||
+        p.GEONUNIT ||
+        p.name ||
+        p.NAME;
 
-state.disputes.features.forEach((f, i) => {
-  const label = getDisputeGroupLabel(f);
-  const id = normalize(label).replace(/\s+/g, "-") || `group-${i}`;
+      return (group && String(group).trim()) ? String(group).trim() : "Other";
+    };
 
-  if (!groups.has(id)) {
-    groups.set(id, { id, label, features: [] });
-  }
-  groups.get(id).features.push(f);
-});
+    const groups = new Map(); // id -> { id, label, features[] }
 
-// Convert to array for UI
-state.disputes.groupList = Array.from(groups.values()).sort((a, b) =>
-  a.label.localeCompare(b.label)
-);
+    state.disputes.features.forEach((f, i) => {
+      const label = getDisputeGroupLabel(f);
+      const id = normalize(label).replace(/\s+/g, "-") || `group-${i}`;
 
-// Default enable all groups if first run
-if (!state.disputes.enabledGroups || state.disputes.enabledGroups.size === 0) {
-  state.disputes.enabledGroups = new Map();
-  state.disputes.groupList.forEach((g) => state.disputes.enabledGroups.set(g.id, true));
-}
-
-	const isoByName = new Map();
-	const isoByNumeric = new Map();
-
-	// Your iso-3166-1.json is an array of objects like:
-	// { name, "alpha-3", "country-code", ... }
-	// But keep this robust in case you later swap datasets.
-	const isoRows = Array.isArray(isoData)
-	  ? isoData
-	  : (isoData?.countries || isoData?.data || []);
-
-	isoRows.forEach((row) => {
-	  const name =
-		row.name ??
-		row.country ??
-		row.Country ??
-		row.countryName ??
-		row.country_name;
-
-	  const alpha3 =
-		row["alpha-3"] ??
-		row.alpha3 ??
-		row.alpha_3 ??
-		row.alpha ??
-		row["Alpha-3"];
-
-	  const numeric =
-		row["country-code"] ??
-		row.numeric ??
-		row.countryCode ??
-		row.country_code ??
-		row["country code"];
-
-	  if (!name || !alpha3) return;
-
-	  const a3 = String(alpha3).toUpperCase();
-	  isoByName.set(normalize(String(name)), a3);
-
-	  if (numeric != null && numeric !== "") {
-		isoByNumeric.set(String(numeric).padStart(3, "0"), a3);
-	  }
-	});
-
-    const geojson = feature(topology, topology.objects.countries);
-	state.features = geojson.features
-	  .map((feature) => {
-		const name = feature.properties?.name || "Unknown";
-		const normalized = normalize(name);
-		const iso3 =
-		  aliasMap.get(normalized) ||
-		  isoByName.get(normalized) ||
-		  isoByNumeric.get(String(feature.id));
-
-		return {
-		  ...feature,
-		  properties: {
-			...feature.properties,
-			name,
-			iso3: iso3 || `UNK-${feature.id}`,
-		  },
-		};
-	  });
-    state.features.forEach((feature) => {
-      state.countries.set(feature.properties.iso3, {
-        name: feature.properties.name,
-        iso3: feature.properties.iso3,
-      });
+      if (!groups.has(id)) {
+        groups.set(id, { id, label, features: [] });
+      }
+      groups.get(id).features.push(f);
     });
 
-	await loadPresetGroups();
-    state.groups = [...presetGroups.map((group) => ({ ...group, id: crypto.randomUUID() }))];
+    state.disputes.groupList = Array.from(groups.values()).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
 
+    if (!state.disputes.enabledGroups || state.disputes.enabledGroups.size === 0) {
+      state.disputes.enabledGroups = new Map();
+      state.disputes.groupList.forEach((g) => state.disputes.enabledGroups.set(g.id, true));
+    }
+
+    // --- Preset groups ---
+    await loadPresetGroups();
+    state.groups = presetGroups.map((group) => ({ ...group, id: crypto.randomUUID() }));
+
+    // --- Hydrate saved project ---
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       hydrateState(JSON.parse(stored));
     }
+
+    // Ensure defaults exist even if older saves are missing them
+    state.mapDetail = state.mapDetail || "110m";
+    state.projectionType = state.projectionType || "mercator";
+
+    // ✅ NOW load the topology for the (possibly hydrated) mapDetail
+    const topology = await loadTopologyForDetail(state.mapDetail);
+    applyTopologyToState(topology, isoByName, isoByNumeric);
+
+    const landTopology = await loadLandTopologyForDetail(state.mapDetail);
+    state.landFeature = feature(landTopology, landTopology.objects.land);
+
+    applyTopologyToState(topology, isoByName, isoByNumeric);
+
     state.zoomTransform = d3.zoomIdentity;
     state.paidUnlock = localStorage.getItem(UNLOCK_KEY) === "true";
 
@@ -2459,13 +2716,17 @@ if (!state.disputes.enabledGroups || state.disputes.enabledGroups.size === 0) {
     renderSnapshots();
     renderSelectionList();
     renderLegendEditor();
-	renderDisputesListUI();
+    renderDisputesListUI();
     attachEvents();
     setMode("select");
     mapSvg.style("background", state.styles.background);
+
+    renderMap();
+    updateMap();
   } catch (error) {
     console.error("Failed to load data", error);
   }
 };
+
 // select
 bootstrap();
