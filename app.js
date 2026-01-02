@@ -1,7 +1,7 @@
-// Still a Maldives problem
+// Coastal outline
 
 import * as d3 from "https://esm.sh/d3@7";
-import { feature } from "https://esm.sh/topojson-client@3";
+import { feature, mesh } from "https://esm.sh/topojson-client@3";
 import * as d3GeoProjection from "https://esm.sh/d3-geo-projection@4";
 import Papa from "https://esm.sh/papaparse@5.4.1";
 
@@ -10,11 +10,6 @@ const DATA_SOURCES = {
     "110m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json",
     "50m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json",
     "10m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-10m.json",
-  },
-  land: {
-    "110m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json",
-    "50m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-50m.json",
-    "10m": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-10m.json",
   },
   iso: "./data/iso-3166-1.json",
   disputed: "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_50m_admin_0_breakaway_disputed_areas.geojson",
@@ -230,7 +225,12 @@ if (landLayer) {
 }
 if (sphereLayer) {
   sphereLayer.selectAll("path.globe-outline").attr("d", path);
+  sphereLayer.selectAll("path.sea-sphere").attr("d", path);
 }
+
+// Keep the SVG clipPath in sync with the current path()
+mapSvg.selectAll("path.globe-clip-path").attr("d", path);
+
 updateAnnotations();
 renderLegend();
 
@@ -400,6 +400,18 @@ const buildIsoIndexes = (isoData) => {
 const applyTopologyToState = (topology, isoByName, isoByNumeric) => {
   const geojson = feature(topology, topology.objects.countries);
 
+  // Build a coastline mesh from the SAME arcs as the countries topology.
+  // Filter out Antarctica the same way you filter it out of state.features (id "010").
+  const countriesObj = topology.objects.countries;
+  const filteredCountriesObj = {
+    type: "GeometryCollection",
+    geometries: (countriesObj.geometries || []).filter((g) => {
+      const id3 = g.id == null ? "" : String(g.id).padStart(3, "0");
+      return id3 !== "010";
+    }),
+  };
+  state.coastMesh = mesh(topology, filteredCountriesObj, (a, b) => a === b);
+
   state.features = geojson.features
     .filter((feature) => feature.id !== "010" && feature.properties?.name !== "Antarctica")
     .map((feature) => {
@@ -457,6 +469,7 @@ const applyTopologyToState = (topology, isoByName, isoByNumeric) => {
   });
 };
 
+
 const loadTopologyForDetail = async (detail) => {
   const key = detail || "110m";
   const url = DATA_SOURCES.countries[key] || DATA_SOURCES.countries["110m"];
@@ -471,20 +484,6 @@ const loadTopologyForDetail = async (detail) => {
   return topology;
 };
 
-const loadLandTopologyForDetail = async (detail) => {
-  const key = detail || "110m";
-  const url = DATA_SOURCES.land[key] || DATA_SOURCES.land["110m"];
-
-  const topology = await d3.json(url);
-
-  console.log("land topology keys", Object.keys(topology || {}));
-  console.log("land objects keys", Object.keys(topology?.objects || {}));
-  console.log("land obj type", topology?.objects?.land?.type);
-  console.log("land arcs length", topology?.arcs?.length);
-
-  return topology;
-};
-
 const reloadMapDetail = async () => {
   // Preserve these across a topology swap
   const prevSelection = new Set(state.selection);
@@ -495,9 +494,6 @@ const reloadMapDetail = async () => {
 
   // iso indexes are built once and stored (see bootstrap changes below)
   applyTopologyToState(topology, state._isoByName, state._isoByNumeric);
-
-  const landTopology = await loadLandTopologyForDetail(state.mapDetail);
-  state.landFeature = feature(landTopology, landTopology.objects.land);
 
   // Restore and drop anything that no longer exists in the new dataset
   state.selection = new Set([...prevSelection].filter((iso3) => state.countries.has(iso3)));
@@ -746,21 +742,46 @@ const renderMap = () => {
     .attr("height", "100%");
 
   mapSvg.selectAll("g").remove();
+  mapSvg.selectAll("defs").remove();
+
   const root = mapSvg
     .append("g")
     .attr("class", "map-root")
     .attr("transform", `translate(${pad},${pad})`);
 
 sphereLayer = root.append("g").attr("class", "sphere");
+
+// Create an SVG clipPath for orthographic so strokes can't draw outside the globe
+if (state.projectionType === "geoOrthographic") {
+  const defs = mapSvg.append("defs");
+
+  defs
+    .append("clipPath")
+    .attr("id", "globe-clip")
+    .append("path")
+    .datum({ type: "Sphere" })
+    .attr("class", "globe-clip-path")
+    .attr("d", path);
+}
+
 disputeLayer = root.append("g").attr("class", "disputes");  // below
-landLayer = mapSvg.append("g").attr("class", "land-layer");
+landLayer = root.append("g").attr("class", "land"); // coastlines
 countryLayer = root.append("g").attr("class", "countries"); // above
   sketchLayer = root.append("g").attr("class", "sketch").attr("pointer-events", "none");
   pinLayer = root.append("g").attr("class", "pins");
   textLayer = root.append("g").attr("class", "texts");
   legendLayer = root.append("g").attr("class", "legend");
 
-  
+// Apply the clip to everything that should be constrained to the globe
+if (state.projectionType === "geoOrthographic") {
+  disputeLayer.attr("clip-path", "url(#globe-clip)");
+  landLayer.attr("clip-path", "url(#globe-clip)");
+  countryLayer.attr("clip-path", "url(#globe-clip)");
+  sketchLayer.attr("clip-path", "url(#globe-clip)");
+  pinLayer.attr("clip-path", "url(#globe-clip)");
+  textLayer.attr("clip-path", "url(#globe-clip)");
+}
+
 sphereLayer.selectAll("*").remove();
 
 if (state.projectionType !== "geoOrthographic") {
@@ -814,18 +835,18 @@ console.log(
   [...counts.entries()].filter(([,c]) => c > 1).slice(0, 20)
 );
 
-  if (landLayer && state.landFeature) {
-    landLayer
-      .selectAll("path.land-outline")
-      .data([state.landFeature])
-      .join("path")
-      .attr("class", "land-outline")
-      .attr("d", path)
-      .attr("fill", "none")
-      .attr("stroke", state.styles.coastStroke || "#94a3b8")
-      .attr("stroke-width", state.styles.coastStrokeWidth ?? 0.5)
-      .attr("pointer-events", "none");
-  }
+if (landLayer && state.coastMesh) {
+  landLayer
+    .selectAll("path.land-outline")
+    .data([state.coastMesh])
+    .join("path")
+    .attr("class", "land-outline")
+    .attr("d", path)
+    .attr("fill", "none")
+    .attr("stroke", state.styles.coastStroke || "#94a3b8")
+    .attr("stroke-width", state.styles.coastStrokeWidth ?? 0.5)
+    .attr("pointer-events", "none");
+}
 
   countryLayer
     .selectAll("path")
@@ -2702,9 +2723,6 @@ const bootstrap = async () => {
     // ✅ NOW load the topology for the (possibly hydrated) mapDetail
     const topology = await loadTopologyForDetail(state.mapDetail);
     applyTopologyToState(topology, isoByName, isoByNumeric);
-
-    const landTopology = await loadLandTopologyForDetail(state.mapDetail);
-    state.landFeature = feature(landTopology, landTopology.objects.land);
 
     applyTopologyToState(topology, isoByName, isoByNumeric);
 
