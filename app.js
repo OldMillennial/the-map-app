@@ -1,4 +1,4 @@
-// Coastal outline
+// Remove sketch
 
 import * as d3 from "https://esm.sh/d3@7";
 import { feature, mesh } from "https://esm.sh/topojson-client@3";
@@ -23,7 +23,7 @@ const mapWrap = document.querySelector(".map-wrap");
 const ui = {
   countrySearch: document.querySelector("#country-search"),
   countryResults: document.querySelector("#country-results"),
-  selectFromSearch: document.querySelector("#select-from-search"),
+
   hideFromSearch: document.querySelector("#hide-from-search"),
   selectionSummary: document.querySelector("#selection-summary"),
   clearSelection: document.querySelector("#clear-selection"),
@@ -94,6 +94,13 @@ disputedMatchSelected: document.querySelector("#disputed-match-selected"),
 disputedFill: document.querySelector("#disputed-fill"),
 disputesSelectAll: document.querySelector("#disputes-select-all"),
 disputesSelectNone: document.querySelector("#disputes-select-none"),
+selectedPattern: document.querySelector("#selected-pattern"),
+patternColor: document.querySelector("#pattern-color"),
+  pinIcon: document.querySelector("#pin-icon"),
+  pinColor: document.querySelector("#pin-color"),
+  pinSize: document.querySelector("#pin-size"),
+  pinLabelTextColor: document.querySelector("#pin-label-text-color"),
+  pinLabelBgColor: document.querySelector("#pin-label-bg-color"),
 
 };
 
@@ -104,6 +111,8 @@ const defaultState = () => ({
   hidden: new Set(),
   styles: {
     selectedFill: "#2563eb",
+	selectedPattern: "solid",
+	patternColor: "#0f172a",
     nonSelectedFill: "#e2e8f0",
     nonSelectedOpacity: 0.7,
     noDataFill: "#cbd5f5",
@@ -119,6 +128,11 @@ const defaultState = () => ({
 	seaOpacity: 1,
 	disputedMatchSelected: true,
 	disputedFill: "#2563eb",
+    pinIcon: "circle",          // "circle" or one of the svg keys you choose
+    pinColor: "#1f2937",
+    pinSize: 18,                // px (used for svg size, circle uses r = pinSize/4-ish)
+    pinLabelTextColor: "#0f172a",
+    pinLabelBgColor: "#ffffff",
   },
   annotations: [],
   legend: {
@@ -129,6 +143,7 @@ const defaultState = () => ({
     orientation: "vertical",
   },
   countryStyles: new Map(),
+  countryPatterns: new Map(),
   choropleth: {
     active: false,
     data: new Map(),
@@ -170,10 +185,11 @@ let pinLayer;
 let textLayer;
 let legendLayer;
 let sphereLayer;
-let sketchLayer;
 let disputeLayer;
 let landLayer;
 let lastMapSize = { width: 0, height: 0 };
+let defsLayer;
+const patternCache = new Map(); // key -> patternId
 const zoomBehavior = d3
   .zoom()
   .scaleExtent([1, 8])
@@ -397,7 +413,18 @@ const buildIsoIndexes = (isoData) => {
   return { isoByName, isoByNumeric };
 };
 
+const countCoords = (geom) => {
+  if (!geom) return 0;
+  if (geom.type === "MultiLineString") {
+    return geom.coordinates.reduce((sum, line) => sum + line.length, 0);
+  }
+  if (geom.type === "LineString") return geom.coordinates.length;
+  return 0;
+};
+
 const applyTopologyToState = (topology, isoByName, isoByNumeric) => {
+  state._topologyRaw = topology;
+
   const geojson = feature(topology, topology.objects.countries);
 
   // Build a coastline mesh from the SAME arcs as the countries topology.
@@ -469,6 +496,157 @@ const applyTopologyToState = (topology, isoByName, isoByNumeric) => {
   });
 };
 
+const clamp01 = (n) => Math.max(0, Math.min(1, n));
+
+const hexToRgb = (hex) => {
+  const h = String(hex || "").replace("#", "").trim();
+  if (h.length !== 6) return { r: 0, g: 0, b: 0 };
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return { r, g, b };
+};
+
+const rgbToHex = ({ r, g, b }) =>
+  `#${[r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("")}`;
+
+const mix = (a, b, t) => a + (b - a) * t;
+
+const tint = (hex, t) => {
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHex({ r: mix(r, 255, t), g: mix(g, 255, t), b: mix(b, 255, t) });
+};
+
+const shade = (hex, t) => {
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHex({ r: mix(r, 0, t), g: mix(g, 0, t), b: mix(b, 0, t) });
+};
+
+const patternKey = (type, fill, stroke) =>
+  `${type}::${String(fill).toLowerCase()}::${String(stroke).toLowerCase()}`;
+
+const ensureFillPattern = (type, fillHex) => {
+  if (!defsLayer) return null;
+  if (!type || type === "solid") return null;
+
+  const stroke = state.styles.patternColor || "#0f172a";
+const key = patternKey(type, fillHex, stroke);
+
+  if (patternCache.has(key)) return patternCache.get(key);
+
+  const id = `pat-${type}-${Math.random().toString(16).slice(2)}`;
+  patternCache.set(key, id);
+
+  // Background is the actual fill color; stroke is a darker shade of it.
+  const bg = fillHex;
+
+  const p = defsLayer
+    .append("pattern")
+    .attr("id", id)
+    .attr("patternUnits", "userSpaceOnUse");
+
+  // Default sizing, tweaked per pattern
+  let size = 10;
+
+  const addBg = () => {
+    p.append("rect").attr("x", 0).attr("y", 0).attr("width", size).attr("height", size).attr("fill", bg);
+  };
+
+  const line = (x1, y1, x2, y2, w = 1) => {
+    p.append("line")
+      .attr("x1", x1).attr("y1", y1)
+      .attr("x2", x2).attr("y2", y2)
+      .attr("stroke", stroke)
+      .attr("stroke-width", w);
+  };
+
+  const rect = (x, y, w, h, sw = 1) => {
+    p.append("rect")
+      .attr("x", x).attr("y", y)
+      .attr("width", w).attr("height", h)
+      .attr("fill", "none")
+      .attr("stroke", stroke)
+      .attr("stroke-width", sw);
+  };
+
+  const circle = (cx, cy, r) => {
+    p.append("circle").attr("cx", cx).attr("cy", cy).attr("r", r).attr("fill", stroke);
+  };
+
+  if (type === "hatched") {
+    size = 10;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    line(0, size, size, 0, 1);
+  } else if (type === "crosshatch") {
+    size = 10;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    line(0, size, size, 0, 1);
+    line(0, 0, size, size, 1);
+  } else if (type === "grid") {
+    size = 10;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    line(0, 0, size, 0, 1);
+    line(0, 0, 0, size, 1);
+} else if (type === "checked") {
+  size = 12;
+  p.attr("width", size).attr("height", size);
+  addBg();
+
+  // chessboard: fill two alternating squares with pattern color
+  p.append("rect")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", size / 2)
+    .attr("height", size / 2)
+    .attr("fill", stroke);
+
+  p.append("rect")
+    .attr("x", size / 2)
+    .attr("y", size / 2)
+    .attr("width", size / 2)
+    .attr("height", size / 2)
+    .attr("fill", stroke);
+  } else if (type === "diamondGrid") {
+    size = 12;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    // diamonds: draw two diagonals across the tile edges
+    line(size / 2, 0, size, size / 2, 1);
+    line(size, size / 2, size / 2, size, 1);
+    line(size / 2, size, 0, size / 2, 1);
+    line(0, size / 2, size / 2, 0, 1);
+  } else if (type === "dots") {
+    size = 10;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    circle(size / 2, size / 2, 1.5);
+  } else if (type === "sparseDots") {
+    size = 16;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    circle(size / 2, size / 2, 1.7);
+  } else if (type === "hStripes") {
+    size = 10;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    line(0, size / 2, size, size / 2, 1.2);
+  } else if (type === "vStripes") {
+    size = 10;
+    p.attr("width", size).attr("height", size);
+    addBg();
+    line(size / 2, 0, size / 2, size, 1.2);
+  } else {
+    // fallback
+    p.attr("width", 10).attr("height", 10);
+    addBg();
+    line(0, 10, 10, 0, 1);
+  }
+
+  return id;
+};
 
 const loadTopologyForDetail = async (detail) => {
   const key = detail || "110m";
@@ -489,7 +667,7 @@ const reloadMapDetail = async () => {
   const prevSelection = new Set(state.selection);
   const prevHidden = new Set(state.hidden);
   const prevCountryStyles = new Map(state.countryStyles);
-
+  const prevCountryPatterns = new Map(state.countryPatterns);
   const topology = await loadTopologyForDetail(state.mapDetail);
 
   // iso indexes are built once and stored (see bootstrap changes below)
@@ -502,6 +680,9 @@ const reloadMapDetail = async () => {
   state.countryStyles = new Map(
     [...prevCountryStyles.entries()].filter(([iso3]) => state.countries.has(iso3))
   );
+state.countryPatterns = new Map(
+  [...prevCountryPatterns.entries()].filter(([iso3]) => state.countries.has(iso3))
+);
 
   // Full re-render, because paths change with new topology
   renderMap();
@@ -520,133 +701,6 @@ const hashToUnit = (str) => {
   }
   // unsigned -> [0,1)
   return (h >>> 0) / 4294967296;
-};
-
-const sketchOffset = (key, amplitude) => {
-  const a = hashToUnit(key + ":x") * 2 - 1;
-  const b = hashToUnit(key + ":y") * 2 - 1;
-  return [a * amplitude, b * amplitude];
-};
-
-const renderSketch = () => {
-  if (!sketchLayer) return;
-
-  const sketchOn = state.projectionType === "naturalEarthSketchy";
-  sketchLayer.style("display", sketchOn ? null : "none");
-  if (!sketchOn) return;
-
-  const MIN_AREA = 0.10;      // screen px^2
-  const PASSES = 3;
-  const AMP = 0.8;
-
-  const width = lastMapSize?.width || mapSvg.node()?.clientWidth || 1000;
-  const seamJump = width * 0.5; // jump threshold for antimeridian/seam splitting
-
-  const project = (lonlat) => {
-    const xy = projection(lonlat);
-    if (!xy) return null;
-    const [x, y] = xy;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return [x, y];
-  };
-
-  // Split a ring into multiple screen-space segments when it jumps across the seam.
-  // This prevents long “across-the-world” segments.
-  const projectRingSplit = (ring) => {
-    const segments = [];
-    let seg = [];
-
-    let prev = null;
-    for (const p of ring) {
-      const xy = project(p);
-
-      if (!xy) {
-        if (seg.length) segments.push(seg);
-        seg = [];
-        prev = null;
-        continue;
-      }
-
-      if (prev) {
-        const dx = Math.abs(xy[0] - prev[0]);
-        if (dx > seamJump) {
-          // seam crossing: end current segment and start a new one
-          if (seg.length) segments.push(seg);
-          seg = [xy];
-          prev = xy;
-          continue;
-        }
-      }
-
-      seg.push(xy);
-      prev = xy;
-    }
-
-    if (seg.length) segments.push(seg);
-
-    // Remove tiny segments
-    return segments.filter((s) => s.length >= 3);
-  };
-
-  const segmentsToDraw = [];
-
-  const pushSegmentPasses = (iso3, pts, closed) => {
-    const area = Math.abs(d3.polygonArea(pts));
-    if (area < MIN_AREA) return;
-
-    for (let i = 0; i < PASSES; i++) {
-      segmentsToDraw.push({ iso3, i, pts, closed });
-    }
-  };
-
-  for (const f of state.features) {
-    const iso3 = f.properties.iso3;
-    const geom = f.geometry;
-    if (!geom) continue;
-
-    const handleRing = (ring) => {
-      const segs = projectRingSplit(ring);
-      if (!segs.length) return;
-
-      // If the ring did not split, we can use curveBasisClosed safely.
-      // If it split, use open curveBasis so it won’t “close” across the seam.
-      const didSplit = segs.length > 1;
-
-      if (!didSplit) {
-        pushSegmentPasses(iso3, segs[0], true);
-      } else {
-        for (const pts of segs) pushSegmentPasses(iso3, pts, false);
-      }
-    };
-
-    if (geom.type === "Polygon") {
-      for (const ring of geom.coordinates) handleRing(ring);
-    } else if (geom.type === "MultiPolygon") {
-      for (const poly of geom.coordinates) {
-        for (const ring of poly) handleRing(ring);
-      }
-    }
-  }
-
-  // Two line generators: closed and open
-  const lineClosed = d3.line().curve(d3.curveBasisClosed);
-  const lineOpen = d3.line().curve(d3.curveBasis);
-
-  sketchLayer
-    .selectAll("path.sketch-stroke")
-    .data(segmentsToDraw, (d) => `${d.iso3}:${d.i}:${d.pts.length}:${d.closed ? "c" : "o"}`)
-    .join("path")
-    .attr("class", "sketch-stroke")
-    .attr("d", (d) => (d.closed ? lineClosed(d.pts) : lineOpen(d.pts)))
-    .attr("fill", "none")
-    .attr("stroke", "currentColor")
-    .attr("stroke-width", 1)
-    .attr("stroke-linecap", "round")
-    .attr("opacity", 0.15)
-    .attr("transform", (d) => {
-      const [dx, dy] = sketchOffset(`${d.iso3}:${d.i}`, AMP);
-      return `translate(${dx},${dy})`;
-    });
 };
 
 const setMode = (mode) => {
@@ -712,31 +766,106 @@ path = d3.geoPath(projection);
 };
 
 const getMapDimensions = () => {
-  const wrapRect = mapWrap.getBoundingClientRect();
+  const rect = mapWrap.getBoundingClientRect();
 
-  // Read the CSS padding variable used by `#map { inset: var(--map-pad); }`
-  const padStr = getComputedStyle(mapWrap).getPropertyValue("--map-pad").trim();
-  const pad = Number.parseFloat(padStr) || 0;
+  // Read CSS var like "--map-pad: 24px"
+  const raw = getComputedStyle(mapWrap).getPropertyValue("--map-pad").trim();
 
-  const innerWidth = Math.max(1, Math.round(wrapRect.width - pad * 2));
-  const innerHeight = Math.max(1, Math.round(wrapRect.height - pad * 2));
+  // Handles "24px", "24", "" safely
+  let pad = 0;
+  if (raw) {
+    const n = Number.parseFloat(raw);
+    pad = Number.isFinite(n) ? n : 0;
+  }
 
-  return { width: innerWidth, height: innerHeight, pad };
+  const outerWidth = Math.max(1, Math.round(rect.width));
+  const outerHeight = Math.max(1, Math.round(rect.height));
+
+  const innerWidth = Math.max(1, Math.round(outerWidth - pad * 2));
+  const innerHeight = Math.max(1, Math.round(outerHeight - pad * 2));
+
+  return { outerWidth, outerHeight, innerWidth, innerHeight, pad };
+};
+// NEW: pin icon registry (id -> file path)
+const PIN_ICON_FILES = {
+  "location-pin": "./location-pin.svg",
+  "location-pin-2": "./location-pin-2.svg",
+  "location-target": "./location-target.svg",
+  "map-pin": "./map-pin.svg",
+  "map-pin-2": "./map-pin-2.svg",
+  "map-pin-3": "./map-pin-3.svg",
 };
 
+// NEW: inline SVGs into <defs> as <symbol> so we can <use> them
+const ensurePinSymbolsLoaded = async () => {
+  if (!defsLayer) return;
+
+  // Avoid double-loading
+  if (defsLayer.select("#pin-symbols-loaded").node()) return;
+  defsLayer.append("g").attr("id", "pin-symbols-loaded");
+
+  const parser = new DOMParser();
+
+  await Promise.all(
+    Object.entries(PIN_ICON_FILES).map(async ([key, url]) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return;
+
+        const svgText = await res.text();
+        const doc = parser.parseFromString(svgText, "image/svg+xml");
+        const svgEl = doc.querySelector("svg");
+        if (!svgEl) return;
+
+        const viewBox = svgEl.getAttribute("viewBox") || "0 0 24 24";
+
+        // Use the SVG's inner markup as the symbol content
+        const symbol = defsLayer
+          .append("symbol")
+          .attr("id", `pin-icon-${key}`)
+          .attr("viewBox", viewBox);
+
+        // Move all children into symbol
+        Array.from(svgEl.childNodes).forEach((node) => {
+          // Ignore <title>, <desc> etc if you want, but harmless
+          symbol.node().appendChild(node.cloneNode(true));
+        });
+
+        // Strip hardcoded fill/stroke so it inherits via currentColor
+        symbol.selectAll("[fill]").attr("fill", "currentColor");
+        symbol.selectAll("[stroke]").attr("stroke", "currentColor");
+        // Some SVGs use inline style="fill:..."
+        symbol.selectAll("[style]").each(function () {
+          const el = d3.select(this);
+          const style = (el.attr("style") || "")
+            .replace(/fill\s*:\s*[^;]+;?/gi, "fill:currentColor;")
+            .replace(/stroke\s*:\s*[^;]+;?/gi, "stroke:currentColor;");
+          el.attr("style", style);
+        });
+      } catch (e) {
+        // swallow, icon just won't be available
+      }
+    })
+  );
+};
+
+
 const renderMap = () => {
-  const { width, height } = getMapDimensions();
-  if (!width || !height) return;
+  // NEW: use the improved getMapDimensions() return shape
+  // It should return: { outerWidth, outerHeight, innerWidth, innerHeight, pad }
+  const { outerWidth, outerHeight, innerWidth, innerHeight, pad } = getMapDimensions();
 
-  const pad = 24; // match your CSS --map-pad
+  if (!outerWidth || !outerHeight) return;
 
-  lastMapSize = { width, height };
+  // Track the actual SVG box size (outer)
+  lastMapSize = { width: outerWidth, height: outerHeight };
 
-  setupProjection(width - pad * 2, height - pad * 2);
+  // Fit projection to the drawable inner area only (after padding)
+  setupProjection(innerWidth, innerHeight);
 
   // Let CSS control layout size (inset/100%); JS controls viewBox only.
   mapSvg
-    .attr("viewBox", `0 0 ${width} ${height}`)
+    .attr("viewBox", `0 0 ${outerWidth} ${outerHeight}`)
     .attr("preserveAspectRatio", "xMidYMid meet")
     .attr("width", "100%")
     .attr("height", "100%");
@@ -749,13 +878,15 @@ const renderMap = () => {
     .attr("class", "map-root")
     .attr("transform", `translate(${pad},${pad})`);
 
-sphereLayer = root.append("g").attr("class", "sphere");
+  sphereLayer = root.append("g").attr("class", "sphere");
+
+patternCache.clear();
+defsLayer = mapSvg.append("defs");
+ensurePinSymbolsLoaded();
 
 // Create an SVG clipPath for orthographic so strokes can't draw outside the globe
 if (state.projectionType === "geoOrthographic") {
-  const defs = mapSvg.append("defs");
-
-  defs
+  defsLayer
     .append("clipPath")
     .attr("id", "globe-clip")
     .append("path")
@@ -764,147 +895,122 @@ if (state.projectionType === "geoOrthographic") {
     .attr("d", path);
 }
 
-disputeLayer = root.append("g").attr("class", "disputes");  // below
-landLayer = root.append("g").attr("class", "land"); // coastlines
-countryLayer = root.append("g").attr("class", "countries"); // above
-  sketchLayer = root.append("g").attr("class", "sketch").attr("pointer-events", "none");
+  countryLayer = root.append("g").attr("class", "countries"); // above
+  disputeLayer = root.append("g").attr("class", "disputes");  // below
+  landLayer = root.append("g").attr("class", "land"); // coastlines
   pinLayer = root.append("g").attr("class", "pins");
   textLayer = root.append("g").attr("class", "texts");
   legendLayer = root.append("g").attr("class", "legend");
 
-// Apply the clip to everything that should be constrained to the globe
-if (state.projectionType === "geoOrthographic") {
-  disputeLayer.attr("clip-path", "url(#globe-clip)");
-  landLayer.attr("clip-path", "url(#globe-clip)");
-  countryLayer.attr("clip-path", "url(#globe-clip)");
-  sketchLayer.attr("clip-path", "url(#globe-clip)");
-  pinLayer.attr("clip-path", "url(#globe-clip)");
-  textLayer.attr("clip-path", "url(#globe-clip)");
-}
+  // Apply the clip to everything that should be constrained to the globe
+  if (state.projectionType === "geoOrthographic") {
+    disputeLayer.attr("clip-path", "url(#globe-clip)");
+    landLayer.attr("clip-path", "url(#globe-clip)");
+    countryLayer.attr("clip-path", "url(#globe-clip)");
+    pinLayer.attr("clip-path", "url(#globe-clip)");
+    textLayer.attr("clip-path", "url(#globe-clip)");
+  }
 
-sphereLayer.selectAll("*").remove();
+  sphereLayer.selectAll("*").remove();
 
-if (state.projectionType !== "geoOrthographic") {
-  sphereLayer
-    .append("rect")
-    .attr("class", "sea-rect")
-    .attr("x", 0)
-    .attr("y", 0)
-    .attr("width", width - pad * 2)
-    .attr("height", height - pad * 2)
-    .attr("fill", state.styles.seaEnabled ? state.styles.seaFill : "transparent")
-    .attr("fill-opacity", state.styles.seaOpacity ?? 1)
-    .attr("pointer-events", "none");
-}
+  // Sea background (2D)
+  if (state.projectionType !== "geoOrthographic") {
+    sphereLayer
+      .append("rect")
+      .attr("class", "sea-rect")
+      .attr("x", 0)
+      .attr("y", 0)
+      // NEW: inner sizes only (no more width - pad*2 here)
+      .attr("width", innerWidth)
+      .attr("height", innerHeight)
+      .attr("fill", state.styles.seaEnabled ? state.styles.seaFill : "transparent")
+      .attr("fill-opacity", state.styles.seaOpacity ?? 1)
+      .attr("pointer-events", "none");
+  }
 
-if (state.projectionType === "geoOrthographic") {
-  sphereLayer
-    .append("path")
-    .datum({ type: "Sphere" })
-    .attr("class", "sea-sphere")
-    .attr("d", path)
-    .attr("fill", state.styles.seaEnabled ? state.styles.seaFill : "transparent")
-    .attr("fill-opacity", state.styles.seaOpacity ?? 1)
-    .attr("pointer-events", "none");
+  // Sea + outline (globe)
+  if (state.projectionType === "geoOrthographic") {
+    sphereLayer
+      .append("path")
+      .datum({ type: "Sphere" })
+      .attr("class", "sea-sphere")
+      .attr("d", path)
+      .attr("fill", state.styles.seaEnabled ? state.styles.seaFill : "transparent")
+      .attr("fill-opacity", state.styles.seaOpacity ?? 1)
+      .attr("pointer-events", "none");
 
-  // Globe outline on top
-  sphereLayer
-    .append("path")
-    .datum({ type: "Sphere" })
-    .attr("class", "globe-outline")
-    .attr("d", path)
-    .attr("fill", "none")
-    .attr("stroke", "currentColor")
-    .attr("stroke-width", 1)
-    .attr("opacity", 0.35)
-    .attr("pointer-events", "none");
-}
-console.log("features:", state.features.length);
+    // Globe outline on top
+    sphereLayer
+      .append("path")
+      .datum({ type: "Sphere" })
+      .attr("class", "globe-outline")
+      .attr("d", path)
+      .attr("fill", "none")
+      .attr("stroke", "currentColor")
+      .attr("stroke-width", 1)
+      .attr("opacity", 0.35)
+      .attr("pointer-events", "none");
+  }
 
-const keys = state.features.map(d =>
-  d.properties.iso3 || String(d.id) || d.properties.name
-);
+  console.log("features:", state.features.length);
 
-console.log("unique keys:", new Set(keys).size);
+  const keys = state.features.map((d) => d.properties.iso3 || String(d.id) || d.properties.name);
 
-// Show top duplicates
-const counts = new Map();
-keys.forEach(k => counts.set(k, (counts.get(k) || 0) + 1));
-console.log(
-  "duplicates:",
-  [...counts.entries()].filter(([,c]) => c > 1).slice(0, 20)
-);
+  console.log("unique keys:", new Set(keys).size);
 
-if (landLayer && state.coastMesh) {
-  landLayer
-    .selectAll("path.land-outline")
-    .data([state.coastMesh])
-    .join("path")
-    .attr("class", "land-outline")
-    .attr("d", path)
-    .attr("fill", "none")
-    .attr("stroke", state.styles.coastStroke || "#94a3b8")
-    .attr("stroke-width", state.styles.coastStrokeWidth ?? 0.5)
-    .attr("pointer-events", "none");
-}
+  // Show top duplicates
+  const counts = new Map();
+  keys.forEach((k) => counts.set(k, (counts.get(k) || 0) + 1));
+  console.log(
+    "duplicates:",
+    [...counts.entries()].filter(([, c]) => c > 1).slice(0, 20)
+  );
+
+  if (landLayer && state.coastMesh) {
+    landLayer
+      .selectAll("path.land-outline")
+      .data([state.coastMesh])
+      .join("path")
+      .attr("class", "land-outline")
+      .attr("d", path)
+      .attr("fill", "none")
+      .attr("stroke", state.styles.coastStroke || "#94a3b8")
+      .attr("stroke-width", state.styles.coastStrokeWidth ?? 0.5)
+      .attr("pointer-events", "none");
+  }
 
   countryLayer
     .selectAll("path")
-	
-    .data(state.features, (d) => d.properties._key)
+    .data(state.features, (d) => d.properties.iso3 || String(d.id))
     .join("path")
     .attr("class", "country")
     .attr("data-iso3", (d) => d.properties.iso3)
     .attr("d", path)
-	  .style("pointer-events", (d) =>
-    state.mapDetail === "10m" && d.properties.iso3 === "MDV" ? "none" : "auto"
-  )
+    .style("pointer-events", (d) =>
+      state.mapDetail === "10m" && d.properties.iso3 === "MDV" ? "none" : "fill"
+    )
     .on("pointerover", handlePointerOver)
     .on("pointermove", handlePointerMove)
     .on("pointerout", handlePointerOut)
     .on("click", handleCountryClick);
-	console.log("rendered country paths:", countryLayer.selectAll("path.country").size());
- renderSketch();
 
-	mapSvg.on(".drag", null);
+  console.log("rendered country paths:", countryLayer.selectAll("path.country").size());
 
-	if (state.projectionType === "geoOrthographic") {
-	  mapSvg.on(".zoom", null);
-	  mapSvg.call(globeDragBehavior);
-	} else {
-	  mapSvg.call(zoomBehavior);
-	  mapSvg.call(zoomBehavior.transform, state.zoomTransform);
-	}
+  mapSvg.on(".drag", null);
 
-	  updateMap();
-	  updateAnnotations();
-	  renderLegend();
-	  renderSketch();
-	};
-// console.log("rendered country paths:", countryLayer.selectAll("path.country").size());
-
-const renderMapIfSizeChanged = () => {
-  if (mapWrap) {
-    const rect = mapWrap.getBoundingClientRect();
-    const width = Math.round(rect.width);
-    const height = Math.round(rect.height);
-    if (width === 0 || height === 0) {
-      return;
-    }
-    const nextWidth = Math.max(width, 1);
-    const nextHeight = Math.max(height, 1);
-    if (nextWidth === lastMapSize.width && nextHeight === lastMapSize.height) {
-      return;
-    }
-    renderMap();
-    return;
+  if (state.projectionType === "geoOrthographic") {
+    mapSvg.on(".zoom", null);
+    mapSvg.call(globeDragBehavior);
+  } else {
+    mapSvg.call(zoomBehavior);
+    mapSvg.call(zoomBehavior.transform, state.zoomTransform);
   }
-  const { width, height } = getMapDimensions();
-  if (width === lastMapSize.width && height === lastMapSize.height) {
-    return;
-  }
-  renderMap();
+
+  updateMap();
+  updateAnnotations();
+  renderLegend();
 };
+
 
 const updateMap = () => {
 if (sphereLayer && state.projectionType === "geoOrthographic") {
@@ -933,7 +1039,6 @@ if (sphereLayer && state.projectionType === "geoOrthographic") {
     .attr("stroke", bordersOn ? (state.styles.countryStroke || "#94a3b8") : "none")
     .attr("stroke-width", bordersOn ? (state.styles.countryStrokeWidth ?? 0.5) : 0);
   updateDisputes(); 
-  renderSketch();
   updateSelectionSummary();
   updateLegendBinsUI();
   renderLegend();
@@ -1025,8 +1130,8 @@ const updateDisputes = () => {
   }
 };
 
-
 const getCountryFill = (iso3) => {
+  // Choropleth always wins and stays solid
   if (state.choropleth.active) {
     const value = state.choropleth.data.get(iso3);
     if (value === undefined || value === null || Number.isNaN(value)) {
@@ -1035,9 +1140,22 @@ const getCountryFill = (iso3) => {
     return applyChoroplethColor(value);
   }
 
+  // Selected countries: allow solid OR pattern
   if (state.selection.has(iso3)) {
-    return state.countryStyles.get(iso3) || state.styles.selectedFill;
+    const fillHex = state.countryStyles.get(iso3) || state.styles.selectedFill;
+
+    // Per-country pattern override if set, else fall back to global selectedPattern
+    const pattern =
+      state.countryPatterns.get(iso3) ||
+      state.styles.selectedPattern ||
+      "solid";
+
+    // "solid" means just return the fill color
+    const patId = ensureFillPattern(pattern, fillHex);
+    return patId ? `url(#${patId})` : fillHex;
   }
+
+  // Non-selected is solid
   return state.styles.nonSelectedFill;
 };
 
@@ -1188,6 +1306,7 @@ const renderSelectedCountries = () => {
     clearBtn.title = "Remove override for this country";
     clearBtn.addEventListener("click", () => {
       state.countryStyles.delete(iso3);
+	  state.countryPatterns.delete(iso3);
       renderSelectedCountries();
       updateMap();
       scheduleSave();
@@ -1221,11 +1340,29 @@ const updateSearchResults = (query = "") => {
     const item = document.createElement("div");
     item.className = "dropdown-item";
     item.textContent = `${entry.name} (${entry.iso3})`;
-    item.addEventListener("click", () => {
-      ui.countrySearch.value = entry.name;
-      ui.countrySearch.dataset.iso3 = entry.iso3;
-      ui.countryResults.classList.remove("open");
-    });
+item.addEventListener("click", () => {
+  // ✅ Auto-select on click
+  state.selection.add(entry.iso3);
+
+  updateMap();
+  renderSelectionList();
+  renderSelectedCountries();
+  scheduleSave();
+
+  // ✅ Clear input so user can immediately type again
+  ui.countrySearch.value = "";
+  ui.countrySearch.dataset.iso3 = "";
+
+  // Close dropdown
+  ui.countryResults.classList.remove("open");
+
+  // Re-focus input (nice UX)
+  ui.countrySearch.focus();
+
+  // Optional: clear results so it doesn't flash open on empty string
+  ui.countryResults.innerHTML = "";
+});
+
     ui.countryResults.appendChild(item);
   });
 
@@ -1349,7 +1486,9 @@ const renderSelectionList = () => {
 
 const resetColors = () => {
   state.countryStyles.clear();
+  state.countryPatterns.clear();
   state.styles.selectedFill = "#2563eb";
+  state.styles.selectedPattern = "solid";
   state.styles.nonSelectedFill = "#e2e8f0";
   state.styles.nonSelectedOpacity = 0.7;
   state.styles.noDataFill = "#cbd5f5";
@@ -1838,28 +1977,38 @@ const updateLegendBinsUI = () => {
 
 const addPinFromFeature = (feature) => {
   const centroid = d3.geoCentroid(feature);
+
   state.pins.push({
     id: crypto.randomUUID(),
     iso3: feature.properties.iso3,
     lat: centroid[1],
     lng: centroid[0],
-    color: ui.annotationColor.value,
+
+    // NEW: pin styles stored per pin
+    icon: state.styles.pinIcon || "circle",
+    color: state.styles.pinColor || "#1f2937",
+    size: Number(state.styles.pinSize || 18),
+
+    // NEW: label styles stored per pin
     label: feature.properties.name,
+    labelTextColor: state.styles.pinLabelTextColor || "#0f172a",
+    labelBgColor: state.styles.pinLabelBgColor || "#ffffff",
   });
+
   updateAnnotations();
   renderSelectionList();
   scheduleSave();
 };
 
 const updateAnnotations = () => {
-  pinLayer
-    .selectAll("circle.pin")
+  // NEW: render pins as <g> so we can support circle OR SVG + label bg
+  const pins = pinLayer
+    .selectAll("g.pin")
     .data(state.pins, (d) => d.id)
-    .join((enter) =>
-      enter
-        .append("circle")
+    .join((enter) => {
+      const g = enter
+        .append("g")
         .attr("class", "pin")
-        .attr("r", 6)
         .call(
           d3.drag().on("drag", (event, d) => {
             const coords = projection.invert([event.x, event.y]);
@@ -1869,24 +2018,84 @@ const updateAnnotations = () => {
             }
             updateAnnotations();
           })
-        )
-    )
-    .attr("cx", (d) => projection([d.lng, d.lat])[0])
-    .attr("cy", (d) => projection([d.lng, d.lat])[1])
-    .attr("fill", (d) => d.color || "#1f2937")
-    .attr("stroke", "#0f172a")
-    .attr("stroke-width", 1);
+        );
 
-  pinLayer
-    .selectAll("text.pin-label")
-    .data(state.pins.filter((pin) => pin.label), (d) => d.id)
-    .join("text")
-    .attr("class", "pin-label")
-    .attr("x", (d) => projection([d.lng, d.lat])[0] + 8)
-    .attr("y", (d) => projection([d.lng, d.lat])[1] + 4)
-    .text((d) => d.label)
-    .attr("font-size", 12)
-    .attr("fill", "#0f172a");
+      // icon holder
+      g.append("g").attr("class", "pin-icon");
+
+      // label group (rect + text)
+      const label = g.append("g").attr("class", "pin-label");
+      label.append("rect").attr("class", "pin-label-bg");
+      label.append("text").attr("class", "pin-label-text");
+
+      return g;
+    });
+
+  pins.each(function (d) {
+    const g = d3.select(this);
+    const [x, y] = projection([d.lng, d.lat]);
+
+    g.attr("transform", `translate(${x}, ${y})`);
+
+    // ---- icon ----
+    const iconWrap = g.select("g.pin-icon");
+    iconWrap.selectAll("*").remove();
+
+    const size = Number(d.size || 18);
+    const iconColor = d.color || "#1f2937";
+
+    if ((d.icon || "circle") === "circle") {
+      iconWrap
+        .append("circle")
+        .attr("r", Math.max(3, size / 4))
+        .attr("fill", iconColor)
+        .attr("stroke", "#0f172a")
+        .attr("stroke-width", 1);
+    } else {
+      // SVG symbol <use> (inherits currentColor via style="color")
+      iconWrap
+        .append("use")
+        .attr("href", `#pin-icon-${d.icon}`)
+        .attr("x", -size / 2)
+        .attr("y", -size) // tip-ish alignment
+        .attr("width", size)
+        .attr("height", size)
+        .style("color", iconColor);
+    }
+
+    // ---- label ----
+    const labelText = d.label || "";
+    const labelGroup = g.select("g.pin-label");
+
+    if (!labelText) {
+      labelGroup.style("display", "none");
+      return;
+    }
+
+    labelGroup.style("display", null);
+
+    const textEl = labelGroup
+      .select("text.pin-label-text")
+      .text(labelText)
+      .attr("x", 10) // to the right of the pin
+      .attr("y", 4)  // baseline tweak
+      .attr("font-size", 12)
+      .attr("fill", d.labelTextColor || "#0f172a");
+
+    const bbox = textEl.node().getBBox();
+
+    labelGroup
+      .select("rect.pin-label-bg")
+      .attr("x", bbox.x - 4)
+      .attr("y", bbox.y - 2)
+      .attr("width", bbox.width + 8)
+      .attr("height", bbox.height + 4)
+      .attr("rx", 3)
+      .attr("ry", 3)
+      .attr("fill", d.labelBgColor || "#ffffff")
+      .attr("stroke", "rgba(15, 23, 42, 0.25)")
+      .attr("stroke-width", 0.75);
+  });
 
   const texts = textLayer.selectAll("g.text-annotation").data(state.texts, (d) => d.id);
   const enter = texts
@@ -2068,6 +2277,7 @@ const serializeState = () => {
     hidden: [...state.hidden],
     styles: state.styles,
     countryStyles: Array.from(state.countryStyles.entries()),
+	countryPatterns: Array.from(state.countryPatterns.entries()),
     choropleth: {
       active: state.choropleth.active,
       data: Array.from(state.choropleth.data.entries()),
@@ -2099,6 +2309,7 @@ const hydrateState = (data) => {
   state.hidden = new Set(data.hidden || []);
   state.styles = { ...state.styles, ...data.styles };
   state.countryStyles = new Map(data.countryStyles || []);
+  state.countryPatterns = new Map(data.countryPatterns || []);
   state.choropleth = {
     ...state.choropleth,
     ...data.choropleth,
@@ -2141,6 +2352,9 @@ const scheduleSave = () => {
 
 const updateControls = () => {
   ui.selectedFill.value = state.styles.selectedFill;
+if (ui.selectedPattern) ui.selectedPattern.value = state.styles.selectedPattern || "solid";
+if (ui.patternColor) ui.patternColor.value = state.styles.patternColor || "#0f172a";
+
 	ui.disputedMatchSelected.checked = !!state.styles.disputedMatchSelected;
 
 	// If matching selected, show selected colour in the picker but keep it disabled
@@ -2172,7 +2386,6 @@ const updateControls = () => {
   if (ui.coastBordersEnabled) {
     ui.coastBordersEnabled.checked = state.styles.coastBordersEnabled !== false;
   }
-
   ui.backgroundColor.value = state.styles.background;
   ui.scaleMode.value = state.choropleth.scaleMode;
   ui.bucketCount.value = state.choropleth.buckets;
@@ -2291,6 +2504,29 @@ const unlockTransparent = () => {
     alert("Transparent PNG unlocked on this device.");
   }
 };
+function renderMapIfSizeChanged() {
+  if (mapWrap) {
+    const rect = mapWrap.getBoundingClientRect();
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+
+    if (width === 0 || height === 0) return;
+
+    const nextWidth = Math.max(width, 1);
+    const nextHeight = Math.max(height, 1);
+
+    if (nextWidth === lastMapSize.width && nextHeight === lastMapSize.height) return;
+
+    renderMap();
+    return;
+  }
+
+  const { width, height } = getMapDimensions();
+  if (width === lastMapSize.width && height === lastMapSize.height) return;
+
+  renderMap();
+}
+
 
 const attachEvents = () => {
   ui.countrySearch.addEventListener("input", (event) => updateSearchResults(event.target.value));
@@ -2299,7 +2535,7 @@ const attachEvents = () => {
     setTimeout(() => ui.countryResults.classList.remove("open"), 200)
   );
 
-  ui.selectFromSearch.addEventListener("click", selectFromSearch);
+  ui.selectFromSearch?.addEventListener("click", selectFromSearch);
   ui.hideFromSearch.addEventListener("click", hideFromSearch);
 
   ui.clearSelection.addEventListener("click", () => {
@@ -2341,15 +2577,41 @@ const attachEvents = () => {
     scheduleSave();
   });
 
-  if (ui.clearCountryOverrides) {
-    ui.clearCountryOverrides.addEventListener("click", () => {
-      // Only clear overrides for currently selected countries
-      state.selection.forEach((iso3) => state.countryStyles.delete(iso3));
-      renderSelectedCountries();
-      updateMap();
-      scheduleSave();
+if (ui.clearCountryOverrides) {
+  ui.clearCountryOverrides.addEventListener("click", () => {
+    // Only clear overrides for currently selected countries
+    state.selection.forEach((iso3) => {
+      state.countryStyles.delete(iso3);
+      state.countryPatterns.delete(iso3);
     });
-  }
+    renderSelectedCountries();
+    updateMap();
+    scheduleSave();
+  });
+}
+if (ui.selectedPattern) {
+  ui.selectedPattern.addEventListener("change", (e) => {
+    const pattern = e.target.value || "solid";
+    state.styles.selectedPattern = pattern;
+
+    // Auto-apply to selection immediately
+    state.selection.forEach((iso3) => state.countryPatterns.set(iso3, pattern));
+
+    renderSelectedCountries();
+    updateMap();
+    scheduleSave();
+  });
+}
+ui.patternColor?.addEventListener("input", (e) => {
+  state.styles.patternColor = e.target.value;
+
+  // Pattern IDs are cached. If color changes, you must clear cache and rebuild defs.
+  patternCache.clear();
+  if (defsLayer) defsLayer.selectAll("*").remove();
+
+  updateMap();
+  scheduleSave();
+});
 
   const syncSeaControls = () => {
     const enabled = !!state.styles.seaEnabled;
@@ -2530,6 +2792,44 @@ const attachEvents = () => {
   ui.annotationColor.addEventListener("input", () => scheduleSave());
   ui.annotationSize.addEventListener("input", () => scheduleSave());
   ui.annotationBg.addEventListener("input", () => scheduleSave());
+  // NEW: pin styling controls apply to all pins + default styles
+  const applyPinDefaultsToExistingPins = () => {
+    state.pins.forEach((p) => {
+      p.icon = state.styles.pinIcon;
+      p.color = state.styles.pinColor;
+      p.size = Number(state.styles.pinSize);
+
+      p.labelTextColor = state.styles.pinLabelTextColor;
+      p.labelBgColor = state.styles.pinLabelBgColor;
+    });
+    updateAnnotations();
+    scheduleSave();
+  };
+
+  ui.pinIcon?.addEventListener("change", (e) => {
+    state.styles.pinIcon = e.target.value;
+    applyPinDefaultsToExistingPins();
+  });
+
+  ui.pinColor?.addEventListener("input", (e) => {
+    state.styles.pinColor = e.target.value;
+    applyPinDefaultsToExistingPins();
+  });
+
+  ui.pinSize?.addEventListener("input", (e) => {
+    state.styles.pinSize = Number(e.target.value);
+    applyPinDefaultsToExistingPins();
+  });
+
+  ui.pinLabelTextColor?.addEventListener("input", (e) => {
+    state.styles.pinLabelTextColor = e.target.value;
+    applyPinDefaultsToExistingPins();
+  });
+
+  ui.pinLabelBgColor?.addEventListener("input", (e) => {
+    state.styles.pinLabelBgColor = e.target.value;
+    applyPinDefaultsToExistingPins();
+  });
 
   ui.saveSnapshot.addEventListener("click", saveSnapshot);
 
@@ -2723,9 +3023,6 @@ const bootstrap = async () => {
     // ✅ NOW load the topology for the (possibly hydrated) mapDetail
     const topology = await loadTopologyForDetail(state.mapDetail);
     applyTopologyToState(topology, isoByName, isoByNumeric);
-
-    applyTopologyToState(topology, isoByName, isoByNumeric);
-
     state.zoomTransform = d3.zoomIdentity;
     state.paidUnlock = localStorage.getItem(UNLOCK_KEY) === "true";
 

@@ -267,6 +267,7 @@ button.text-button {
   line-height: 1.25;
   padding: 4px 0;
 }
+
 .field input[type="color"] {
   width: 44px;
   height: 32px;
@@ -398,11 +399,17 @@ button.text-button {
 
 .country {
   cursor: pointer;
-  transition: filter 0.15s ease;
 }
 
 .country.hovered {
   filter: brightness(1.1);
+}
+.field select {
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: white;
 }
 
 .globe-outline {
@@ -411,10 +418,6 @@ button.text-button {
   stroke-width: 1;
   opacity: 0.35;
   pointer-events: none;
-}
-
-.sketch {
-  color: #0f172a; /* uses currentColor in strokes */
 }
 
 .pin {

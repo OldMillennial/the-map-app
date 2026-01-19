@@ -38,7 +38,6 @@
             <div id="country-results" class="dropdown"></div>
           </div>
           <div class="inline-actions">
-            <button class="primary" id="select-from-search">Select</button>
             <button class="ghost" id="hide-from-search">Hide</button>
           </div>
           <div class="selection-summary" id="selection-summary">Selected: none</div>
@@ -61,6 +60,31 @@
               <button class="ghost" id="apply-selected-fill">Apply to selection</button>
             </div>
           </div>
+		  <div class="field">
+  <label for="selected-pattern">Selected pattern</label>
+  <div class="field-row">
+    <select id="selected-pattern">
+      <option value="solid">Solid</option>
+      <option value="hatched">Hatched</option>
+      <option value="crosshatch">Crosshatch</option>
+      <option value="checked">Checked</option>
+      <option value="grid">Grid</option>
+      <option value="diamondGrid">Diamond grid</option>
+      <option value="dots">Dots</option>
+      <option value="sparseDots">Sparse dots</option>
+      <option value="hStripes">Horizontal stripes</option>
+      <option value="vStripes">Vertical stripes</option>
+    </select>
+	<div class="field">
+  <label for="pattern-color">Pattern color</label>
+  <div class="field-row">
+    <input id="pattern-color" type="color" value="#0f172a" />
+  </div>
+</div>
+
+  </div>
+</div>
+
           <div class="field">
             <label for="nonselected-fill">Non-selected fill</label>
             <div class="field-row">
@@ -112,6 +136,7 @@
 			</div>
 			<small>Width</small>
 		  </div>
+
 
           <div class="inline-actions">
             <button class="ghost" id="reset-colors">Reset colors</button>
@@ -276,7 +301,6 @@
 			  <option value="equirectangular">Equirectanglar</option>
 			  <option value="geoNaturalEarth1">Natural Earth</option>
 			  <option value="geoOrthographic">Orthographic</option>
-			  <option value="naturalEarthSketchy">Natural Earth (Sketchy)</option>
             </select>
 			<label for="map-detail">Detail</label>
 <select id="map-detail">
